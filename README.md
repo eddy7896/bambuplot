@@ -34,7 +34,21 @@ The Artwork tab accepts PNG, JPG and SVG files.
 | Centerline trace | Sketches, line art, handwriting | One stroke down the middle of each drawn line, instead of two outlines. |
 | Contour lines | Photos, portraits | Lines of equal brightness, like a topographic map. |
 
-The tone effects (waves, halftone, spiral, stipple) are still there for photos.
+### Effects for photos and pictures
+
+Every setting is a slider with a live value. Settings that only matter in some modes appear when they apply, and **Reset settings** restores the defaults. The image tone controls are sliders too, including **Paper white**, which leaves near-white areas without ink.
+
+| Group | Effect | Highlights |
+|---|---|---|
+| Trace to vector lines | Outline trace, Centerline trace, Contour lines | See above |
+| Single continuous line | **Wave lines** | Line angle; wave height up to 1× spacing, so neighbors overlap for full black |
+| | **Spiral** | Off-center positioning; can keep spiralling into the corners |
+| | **Hilbert squiggle** | One space-filling line that wiggles harder in dark areas; rounded corners |
+| Hatching & engraving | **Cross-hatch** | 1–4 layers; each darker tone adds a hatch at a new angle |
+| | **Flow lines** | Engraving-style lines that follow edges (or cross them), packed closer in shadows |
+| Dots | **Halftone** | Circle, square, line or cross dots; filled or outline |
+| | **Stipple** | Density contrast; drawn as one TSP line, pen taps, or small filled dots |
+| | **Dither dots** | Floyd–Steinberg, Atkinson or ordered dithering on a pen-sized grid |
 
 ### Rotation
 

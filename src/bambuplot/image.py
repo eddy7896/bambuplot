@@ -21,6 +21,7 @@ class Prep(BaseModel):
     brightness: float = Field(0.0, ge=-1, le=1)
     gamma: float = Field(1.0, gt=0)
     invert: bool = False
+    paper_white: float = Field(0.0, ge=0, le=0.5)  # darkness below this becomes pure white
     rotate: Literal[0, 90, 180, 270] = 0  # clockwise, applied before cropping
     px_per_mm: float = Field(4.0, gt=0, le=20)
 
@@ -127,4 +128,6 @@ def prepare(gray: np.ndarray | None, w: float, h: float, prep: Prep | None = Non
     data = np.clip(data, 0, 1) ** prep.gamma
     if prep.invert:
         data = 1.0 - data
+    if prep.paper_white > 0:  # leave near-white areas blank instead of faint marks
+        data = np.where(1.0 - data < prep.paper_white, 1.0, data)
     return Tone(data=data.astype(np.float32), w=w, h=h)

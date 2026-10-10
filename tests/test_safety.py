@@ -34,10 +34,16 @@ def test_validator_rejects_moves_off_plate_or_too_low_or_before_homing():
     assert validate("G90\nG1 X10 Y10\nG28\n", min_z=2)
 
 
-@pytest.mark.parametrize("effect", ["waves", "halftone", "spiral", "stipple"])
+from bambuplot.effects import EFFECTS
+
+RASTER = [n for n, e in EFFECTS.items() if e.source == "raster"]
+FAST = {"stipple": {"points": 400, "iterations": 2, "optimize_seconds": 0.2}, "dither": {"cell": 2.0}}
+
+
+@pytest.mark.parametrize("effect", RASTER)
 def test_every_effect_stays_inside_area_and_above_pen_down(effect):
     layout = Layout()
-    params = {"points": 400, "iterations": 2, "optimize_seconds": 0.2} if effect == "stipple" else {}
+    params = FAST.get(effect, {})
     text = plan_to_gcode(layout, make_plan(layout, effect, params))
     a = layout.area
     art = text.split("; ===== artwork =====", 1)[1]

@@ -96,6 +96,14 @@ input:focus-visible,select:focus-visible,button:focus-visible{outline:2px solid 
 .thumb{display:flex;gap:10px;align-items:center;margin-top:8px;font-size:12px;color:var(--muted)}
 .notes{margin:8px 0 0;padding-left:18px;font-size:12px;color:var(--warn)}
 .thumb .btn{margin-left:auto;padding:4px 9px}
+.slider .lab{display:flex;justify-content:space-between;gap:8px;color:var(--muted)}
+.slider output{font:500 12px var(--font-mono);font-variant-numeric:tabular-nums;color:var(--ink)}
+.slider input[type=range]{width:100%;accent-color:var(--accent);margin:2px 0}
+.params{display:flex;flex-direction:column;gap:10px}
+.param small,.boolhelp{display:block;font-size:11px;color:var(--muted)}
+.boolhelp{margin:2px 0 0 24px}
+.effhead{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.linkbtn{border:0;background:none;color:var(--accent);font:500 12px var(--font-ui);cursor:pointer;padding:2px}
 .thumb img{width:56px;height:56px;object-fit:cover;border-radius:6px;border:1px solid var(--line);filter:grayscale(1)}
 .below{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:18px;margin-top:18px;align-items:start}
 @media (max-width:760px){.below{grid-template-columns:minmax(0,1fr)}}
@@ -215,9 +223,10 @@ input[type=file]{font:12px var(--font-ui);color:var(--muted);max-width:100%}
           <ul class="notes" id="srcNotes" hidden></ul>
           <p class="hint">PNG or JPG: pick a tone effect, or trace it into vector lines. SVG: its own paths are drawn directly.</p>
           <div class="g2" id="toneControls" style="margin-top:12px">
-            <label class="f">Contrast<input type="number" id="P.contrast" step="0.05" min="0"></label>
-            <label class="f">Brightness<input type="number" id="P.brightness" step="0.05" min="-1" max="1"></label>
-            <label class="f">Gamma<input type="number" id="P.gamma" step="0.05" min="0.1"></label>
+            <label class="f slider" for="P.contrast"><span class="lab">Contrast<output id="P.contrast.out"></output></span><input type="range" id="P.contrast" min="0.2" max="3" step="0.05" data-unit="×"></label>
+            <label class="f slider" for="P.brightness"><span class="lab">Brightness<output id="P.brightness.out"></output></span><input type="range" id="P.brightness" min="-0.5" max="0.5" step="0.01"></label>
+            <label class="f slider" for="P.gamma"><span class="lab">Gamma<output id="P.gamma.out"></output></span><input type="range" id="P.gamma" min="0.3" max="3" step="0.05"></label>
+            <label class="f slider" for="P.paper_white"><span class="lab">Paper white<output id="P.paper_white.out"></output></span><input type="range" id="P.paper_white" min="0" max="0.5" step="0.01"><small>Near-white areas get no ink</small></label>
             <label class="f">Turn image
               <select id="P.rotate"><option value="0">Upright</option><option value="90">90° clockwise</option><option value="180">180°</option><option value="270">90° counter-clockwise</option></select>
             </label>
@@ -228,10 +237,10 @@ input[type=file]{font:12px var(--font-ui);color:var(--muted);max-width:100%}
           </div>
         </div>
         <div class="panel sec">
-          <h2>Effect</h2>
+          <div class="effhead"><h2>Effect</h2><button class="linkbtn" type="button" id="resetParams">Reset settings</button></div>
           <select id="effect" aria-label="Effect"></select>
           <p class="desc" id="effectDesc"></p>
-          <div class="g2" id="params"></div>
+          <div class="params" id="params"></div>
         </div>
       </div>
 
@@ -597,10 +606,10 @@ function render(){if(!drag)computeView();renderUnder();renderOver();placeInk();s
 const getP=(o,p)=>p.split('.').reduce((a,k)=>a?.[k],o);
 const setP=(o,p,v)=>{const ks=p.split('.'),l=ks.pop();ks.reduce((a,k)=>a[k],o)[l]=v};
 const layoutInputs=[...document.querySelectorAll('[id^="L."]')];
-const prepInputs=[...document.querySelectorAll('[id^="P."]')];
+const prepInputs=[...document.querySelectorAll('input[id^="P."],select[id^="P."]')];
 function syncInputs(){
   for(const el of layoutInputs){if(el===document.activeElement)continue;const v=getP(L,el.id.slice(2));el.value=typeof v==='number'?Math.round(v*100)/100:v}
-  for(const el of prepInputs){if(el===document.activeElement)continue;const v=job.prep[el.id.slice(2)];if(el.type==='checkbox')el.checked=!!v;else el.value=v}
+  for(const el of prepInputs){const v=job.prep[el.id.slice(2)];if(el.type==='range'){const o=$(el.id+'.out');if(o)o.textContent=fmtVal(v,el.step,el.dataset.unit||'')}if(el===document.activeElement)continue;if(el.type==='checkbox')el.checked=!!v;else el.value=v}
   document.querySelectorAll('#orient button').forEach(b=>b.setAttribute('aria-pressed',b.dataset.o===L.paper.orientation));
   $('cliplist').innerHTML=L.clips.map((c,i)=>`<li data-i="${i}" class="${sel==='clip:'+i?'sel':''}"><span>Clip ${i+1} · X ${fmt(c.x)} Y ${fmt(c.y)}</span><button type="button" aria-label="Remove clip ${i+1}" data-rm="${i}">×</button></li>`).join('');
   $('aspect').disabled=!job.image;
@@ -618,7 +627,7 @@ for(const el of layoutInputs)el.addEventListener('input',()=>{
 for(const el of prepInputs)el.addEventListener('input',()=>{
   const key=el.id.slice(2);let v=el.type==='checkbox'?el.checked:parseFloat(el.value);
   if(el.type==='number'&&(!isFinite(v)||(el.min!==''&&v<+el.min)))return;
-  job.prep[key]=v;save();placeInk();schedulePlan();
+  job.prep[key]=v;if(el.type==='range'){const o=$(el.id+'.out');if(o)o.textContent=fmtVal(v,el.step,el.dataset.unit||'')}save();placeInk();schedulePlan(400);
 });
 document.querySelectorAll('#orient button').forEach(b=>b.onclick=()=>{
   if(L.paper.orientation===b.dataset.o)return;const [cx,cy]=centerOf(paperBox());
@@ -650,7 +659,7 @@ document.querySelectorAll('.tabs [role=tab]').forEach(t=>t.onclick=()=>{
 });
 
 /* effect + params */
-const TRACE_EFFECTS=['trace','centerline','contours'];
+const GROUP_ORDER=['Trace to vector lines','Single continuous line','Hatching & engraving','Dots','Vector file'];
 const srcKind=()=>job.image?.kind==='svg'?'svg':'raster';
 function buildEffects(){
   const kind=srcKind(),usable=effects.filter(e=>(e.source||'raster')===kind);
@@ -659,10 +668,21 @@ function buildEffects(){
   }
   if(kind==='raster')job.lastRaster=job.effect;
   const opt=e=>`<option value="${e.name}">${esc(e.label)}</option>`;
-  $('effect').innerHTML=kind==='svg'?usable.map(opt).join(''):
-    `<optgroup label="Trace to vector lines">${usable.filter(e=>TRACE_EFFECTS.includes(e.name)).map(opt).join('')}</optgroup>`+
-    `<optgroup label="Tone effects">${usable.filter(e=>!TRACE_EFFECTS.includes(e.name)).map(opt).join('')}</optgroup>`;
+  const groups=[...new Set([...GROUP_ORDER,...usable.map(e=>e.group)])].filter(g=>usable.some(e=>e.group===g));
+  $('effect').innerHTML=groups.length<2?usable.map(opt).join(''):
+    groups.map(g=>`<optgroup label="${esc(g)}">${usable.filter(e=>e.group===g).map(opt).join('')}</optgroup>`).join('');
   $('effect').value=job.effect;$('toneControls').hidden=kind==='svg';buildParams();
+}
+/* Number shown beside a slider: trims to the step's decimals and adds the unit. */
+function fmtVal(v,step,unit){
+  const dec=Math.max(0,Math.min(3,String(step??1).split('.')[1]?.length||0));
+  const n=Number(v).toFixed(dec);
+  return unit?(unit==='°'||unit==='×'?n+unit:`${n} ${unit}`):n;
+}
+function sliderHTML(id,label,v,min,max,step,unit,help){
+  return `<label class="f slider" for="${id}"><span class="lab">${esc(label)}<output id="${id}.out">${fmtVal(v,step,unit)}</output></span>`+
+    `<input type="range" id="${id}" min="${min}" max="${max}" step="${step??'any'}" value="${v}">`+
+    `${help?`<small>${esc(help)}</small>`:''}</label>`;
 }
 function buildParams(){
   const e=effects.find(x=>x.name===job.effect)||effects[0];job.effect=e.name;
@@ -670,16 +690,28 @@ function buildParams(){
   const cur=job.params[e.name]||(job.params[e.name]={});
   $('params').innerHTML=e.params.map(p=>{
     const v=cur[p.name]??p.default,id='E.'+p.name,help=p.help?`<small>${esc(p.help)}</small>`:'';
-    if(p.kind==='bool')return `<label class="f row" style="grid-column:1/-1"><input type="checkbox" id="${id}" ${v?'checked':''}> ${esc(p.label)}</label>`;
-    if(p.kind==='choice')return `<label class="f">${esc(p.label)}<select id="${id}">${p.choices.map(c=>`<option ${c===v?'selected':''}>${c}</option>`).join('')}</select>${help}</label>`;
-    return `<label class="f">${esc(p.label)}<input type="number" id="${id}" value="${v}" ${p.min!=null?`min="${p.min}"`:''} ${p.max!=null?`max="${p.max}"`:''} ${p.step!=null?`step="${p.step}"`:''}>${help}</label>`;
+    let html;
+    if(p.kind==='bool')html=`<label class="f row"><input type="checkbox" id="${id}" ${v?'checked':''}> ${esc(p.label)}</label>${p.help?`<small class="boolhelp">${esc(p.help)}</small>`:''}`;
+    else if(p.kind==='choice')html=`<label class="f">${esc(p.label)}<select id="${id}">${p.choices.map(c=>`<option ${c===v?'selected':''}>${esc(c)}</option>`).join('')}</select>${help}</label>`;
+    else if(p.min!=null&&p.max!=null)html=sliderHTML(id,p.label,v,p.min,p.max,p.step,p.unit,p.help);
+    else html=`<label class="f">${esc(p.label)}<input type="number" id="${id}" value="${v}">${help}</label>`;
+    return `<div class="param" data-p="${p.name}">${html}</div>`;
   }).join('');
+  const current=name=>{const p=e.params.find(q=>q.name===name);return cur[name]??p?.default};
+  const applyWhen=()=>e.params.forEach(p=>{
+    const box=document.querySelector(`#params [data-p="${p.name}"]`);
+    box.hidden=!!p.when&&!Object.entries(p.when).every(([k,vals])=>vals.includes(current(k)));
+  });
   e.params.forEach(p=>{const el=$('E.'+p.name);el.addEventListener('input',()=>{
     let v=p.kind==='bool'?el.checked:p.kind==='choice'?el.value:parseFloat(el.value);
-    if((p.kind==='float'||p.kind==='int')&&(!isFinite(v)||(p.min!=null&&v<p.min)||(p.max!=null&&v>p.max)))return;
-    cur[p.name]=v;save();schedulePlan(p.kind==='int'||p.kind==='float'?350:0);
+    if((p.kind==='float'||p.kind==='int')&&!isFinite(v))return;
+    if(p.kind==='int')v=Math.round(v);
+    const out=$('E.'+p.name+'.out');if(out)out.textContent=fmtVal(v,p.step,p.unit);
+    cur[p.name]=v;applyWhen();save();schedulePlan(p.kind==='int'||p.kind==='float'?400:0);
   })});
+  applyWhen();
 }
+$('resetParams').onclick=()=>{job.params[job.effect]={};buildParams();save();schedulePlan(0)};
 $('effect').onchange=e=>{job.effect=e.target.value;buildParams();save();schedulePlan(0)};
 
 /* image */
