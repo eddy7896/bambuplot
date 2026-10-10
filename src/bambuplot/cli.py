@@ -38,7 +38,10 @@ def cmd_serve(args):
     import uvicorn
 
     print(f"BambuPlot running at http://{args.host}:{args.port}")
-    uvicorn.run("bambuplot.server:app", host=args.host, port=args.port, reload=args.reload)
+    # Reload on code changes so the page and the server never drift apart.
+    pkg = str(Path(__file__).parent)
+    uvicorn.run("bambuplot.server:app", host=args.host, port=args.port, reload=not args.no_reload,
+                reload_dirs=[pkg], access_log=args.verbose)
 
 
 def cmd_plot(args):
@@ -119,7 +122,8 @@ def main(argv=None):
     s = sub.add_parser("serve", help="run the web app")
     s.add_argument("--host", default="127.0.0.1")
     s.add_argument("--port", type=int, default=8000)
-    s.add_argument("--reload", action="store_true")
+    s.add_argument("--no-reload", action="store_true", help="don't restart when the code changes")
+    s.add_argument("--verbose", action="store_true", help="log every request")
     s.set_defaults(fn=cmd_serve)
 
     p = sub.add_parser("plot", help="turn an image into G-code")

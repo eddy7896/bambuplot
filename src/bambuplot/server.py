@@ -13,7 +13,7 @@ from fastapi.responses import FileResponse, PlainTextResponse
 from pydantic import BaseModel, Field
 
 from . import effects
-from . import printer
+from . import __version__, printer
 from .calibrate import DEFAULT_PRESSES, press_ladder, smoke_test
 from .fit import center_area, fit_area
 from .gcode import UnsafeLayout
@@ -88,6 +88,11 @@ def _refuse(err: Exception):
 @app.get("/")
 def index():
     return FileResponse(WEB / "index.html")
+
+
+@app.get("/api/version")
+def version():
+    return {"version": __version__, "features": ["rotation", "printer"]}
 
 
 @app.get("/api/effects")

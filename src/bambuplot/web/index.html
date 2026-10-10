@@ -757,11 +757,15 @@ function renderPrinter(c){
     `Template ready: sliced for the ${t.printer_model||'unknown printer'}, plots go into ${t.plate}.${t.warning?' '+t.warning:''}`;
   $('tpl-remove').disabled=!t;
 }
-async function loadPrinter(){try{renderPrinter(await (await fetch('/api/printer')).json())}catch(_){}}
+async function loadPrinter(){
+  try{const r=await fetch('/api/printer');
+    if(r.status===404){msg('pr-msg','The server is out of date. Stop it (Ctrl+C) and run `uv run bambuplot serve` again.','err');return}
+    renderPrinter(await r.json())}catch(_){}
+}
 async function savePrinter(){
   const code=$('pr-code').value.trim();
   const r=await post('/api/printer',{ip:$('pr-ip').value,serial:$('pr-serial').value,url_prefix:$('pr-url').value||'file:///sdcard/',access_code:code?code:null});
-  if(!r.ok){msg('pr-msg','Could not save the settings.','err');return false}
+  if(!r.ok){msg('pr-msg',r.status===404?'The server is out of date. Stop it (Ctrl+C) and run `uv run bambuplot serve` again.':'Could not save the settings.','err');return false}
   renderPrinter(await r.json());return true;
 }
 $('pr-save').onclick=async()=>{if(await savePrinter())msg('pr-msg','Saved.','ok')};
@@ -809,6 +813,9 @@ $('send-start').onclick=()=>sendJob(true);
     job.effect=effects.some(e=>e.name===saved?.effect)?saved.effect:'waves';
     job.params=(saved?.params&&typeof saved.params==='object')?saved.params:{};
     buildEffects();render();refreshChecks();schedulePlan(0);loadPrinter();
+    const v=await fetch('/api/version').then(r=>r.ok?r.json():null).catch(()=>null);
+    if(!v||!['rotation','printer'].every(f=>v.features?.includes(f)))
+      setStatus('The BambuPlot server is out of date. Stop it (Ctrl+C) and run `uv run bambuplot serve` again.',true);
   }catch(e){setStatus('Could not reach the BambuPlot server. Start it with `bambuplot serve`.',true)}
 })();
 </script>
