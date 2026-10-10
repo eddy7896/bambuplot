@@ -371,9 +371,11 @@ input[type=file]{font:12px var(--font-ui);color:var(--muted);max-width:100%}
         <label class="f">What to send
           <select id="send-kind"><option value="art">This artwork</option><option value="smoke">Smoke test</option><option value="press">Press ladder</option></select>
         </label>
+        <p class="warnline"><b>Open in Bambu Connect</b> sends the job through your Bambu account, so it works away from home. You pick the printer in Bambu Connect. <b>Upload only</b> and <b>Upload and start</b> use your local network.</p>
         <p class="warnline">Starting a job makes the printer home right away. The pen holder must be empty and nothing can be near the nozzle. The pen goes in at Pause 1.</p>
         <label class="f row"><input type="checkbox" id="send-ack"> The holder is empty and the bed is clear</label>
         <div class="btns" style="margin-top:0">
+          <button class="btn" type="button" id="send-connect" disabled>Open in Bambu Connect</button>
           <button class="btn" type="button" id="send-upload">Upload only</button>
           <button class="btn primary" type="button" id="send-start" disabled>Upload and start</button>
           <button class="btn" type="button" id="send-cancel">Close</button>
@@ -783,9 +785,9 @@ $('tpl-file').onchange=async e=>{
   loadPrinter();
 };
 $('tpl-remove').onclick=async()=>{await fetch('/api/printer/template',{method:'DELETE'});loadPrinter()};
-$('sendOpen').onclick=()=>{$('sendbox').hidden=false;$('send-ack').checked=false;$('send-start').disabled=true;msg('send-msg','');loadPrinter()};
+$('sendOpen').onclick=()=>{$('sendbox').hidden=false;$('send-ack').checked=false;$('send-start').disabled=$('send-connect').disabled=true;msg('send-msg','');loadPrinter()};
 $('send-cancel').onclick=()=>{$('sendbox').hidden=true};
-$('send-ack').onchange=e=>{$('send-start').disabled=!e.target.checked};
+$('send-ack').onchange=e=>{$('send-start').disabled=$('send-connect').disabled=!e.target.checked};
 async function sendJob(start){
   const kind=$('send-kind').value;
   if(isBad()){msg('send-msg','Fix the failing safety checks first.','err');return}
@@ -801,6 +803,16 @@ async function sendJob(start){
   finally{$('send-upload').disabled=false;$('send-start').disabled=!$('send-ack').checked}
 }
 $('send-upload').onclick=()=>sendJob(false);
+$('send-connect').onclick=async()=>{
+  if(isBad()){msg('send-msg','Fix the failing safety checks first.','err');return}
+  $('send-connect').disabled=true;msg('send-msg','Packaging for Bambu Connect…');
+  try{
+    const r=await post('/api/connect',{...planBody(),kind:$('send-kind').value}),d=await r.json();
+    if(!r.ok){msg('send-msg',errText(d.detail),'err');return}
+    msg('send-msg',`Opened ${d.file} in Bambu Connect. Choose your printer there and send it, then start it at the printer. Saved at ${d.path}.`,'ok');
+  }catch(_){msg('send-msg','Could not reach the BambuPlot server.','err')}
+  finally{$('send-connect').disabled=!$('send-ack').checked}
+};
 $('send-start').onclick=()=>sendJob(true);
 
 /* ---------- boot ---------- */

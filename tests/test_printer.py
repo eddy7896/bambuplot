@@ -139,3 +139,32 @@ def test_api_send_and_settings(home, fake_net):
     assert r.json()["has_access_code"]
     r = client.post("/api/send", json={"kind": "smoke", "layout": Layout().model_dump()})
     assert r.status_code == 200 and r.json()["file"].startswith("bambuplot-smoke")
+
+
+# ----------------------------------------------------------- Bambu Connect
+
+
+def test_connect_needs_a_template(home):
+    lay = Layout()
+    with pytest.raises(printer.PrinterError, match="template"):
+        printer.open_in_bambu_connect(smoke_test(lay), "smoke", min_z=lay.z.down, opener=lambda u: None)
+
+
+def test_connect_saves_package_and_opens_documented_url(home):
+    printer.save_template(make_template())
+    opened = []
+    lay = Layout()
+    res = printer.open_in_bambu_connect(smoke_test(lay), "my smoke", min_z=lay.z.down, opener=opened.append)
+    path = home / "jobs" / res["file"]
+    assert path.exists() and res["file"].endswith(".gcode.3mf")
+    with zipfile.ZipFile(path) as z:
+        assert "M400 U1" in z.read("Metadata/plate_1.gcode").decode()
+    url = opened[0]
+    assert url.startswith("bambu-connect://import-file?path=%2F") and url.endswith("&version=1.0.0")
+    assert "%2Fjobs%2F" in url and "&name=my-smoke-" in url
+
+
+def test_connect_refuses_unsafe_gcode(home):
+    printer.save_template(make_template())
+    with pytest.raises(printer.PrinterError, match="unsafe"):
+        printer.open_in_bambu_connect("G90\nG28\nG1 X300 Y10\n", "bad", min_z=2, opener=lambda u: None)

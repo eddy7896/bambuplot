@@ -231,8 +231,7 @@ def test_printer():
         _printer_error(err)
 
 
-@app.post("/api/send")
-def send(req: SendRequest):
+def _job_text(req: SendRequest) -> tuple[str, str]:
     lay = req.layout
     try:
         if req.kind == "smoke":
@@ -243,8 +242,28 @@ def send(req: SendRequest):
             text, stem = plan_to_gcode(lay, _plan(req), title=req.effect), f"bambuplot-{req.effect}"
     except (UnsafeLayout, GcodeSafetyError, ValueError) as err:
         _refuse(err)
-    min_z = min(lay.z.down, lay.z.touch - max(DEFAULT_PRESSES))
+    return text, stem
+
+
+def _min_z(lay: Layout) -> float:
+    return min(lay.z.down, lay.z.touch - max(DEFAULT_PRESSES))
+
+
+@app.post("/api/send")
+def send(req: SendRequest):
+    text, stem = _job_text(req)
     try:
-        return printer.send_job(printer.load_config(), text, stem, min_z=min_z, start=req.start)
+        return printer.send_job(printer.load_config(), text, stem, min_z=_min_z(req.layout), start=req.start)
     except (printer.PrinterError, TemplateError) as err:
         _printer_error(err)
+
+
+@app.post("/api/connect")
+def bambu_connect(req: SendRequest):
+    text, stem = _job_text(req)
+    try:
+        return printer.open_in_bambu_connect(text, stem, min_z=_min_z(req.layout))
+    except printer.PrinterError as err:
+        raise HTTPException(422, str(err))
+    except TemplateError as err:
+        raise HTTPException(422, str(err))

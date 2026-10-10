@@ -46,6 +46,15 @@ BambuPlot can upload jobs to the A1 Mini over your local network, and optionally
 
 You still put the pen in at Pause 1 at the printer.
 
+**Open in Bambu Connect (over the internet):** sends the job through your Bambu account, using [Bambu Connect](https://wiki.bambulab.com/en/software/bambu-connect), Bambu's official app for third-party software.
+1. BambuPlot packages the job into your template and saves it in `~/.config/bambuplot/jobs/` (the last 20 jobs are kept).
+2. It opens Bambu Connect with the job loaded.
+3. In Bambu Connect, pick your printer and send it, then start the job at the printer.
+
+This needs Bambu Connect installed and a project template. The printer must be connected to the Bambu cloud, so Developer Mode has to be off. Same job from the command line: `bambuplot connect FILE.gcode`.
+
+It isn't known yet whether Bambu Connect accepts a job with no extrusion; try the smoke test first.
+
 **Where settings are stored:** `~/.config/bambuplot/printer.json`, readable only by you. The access code can come from the `BAMBU_ACCESS_CODE` environment variable instead; that takes priority and is never written to disk.
 
 **Safety:**
@@ -132,7 +141,7 @@ Every file passes through `safety.validate` before it is written. It is an allow
 | `safety.py` | G-code allow-list validator |
 | `calibrate.py` | Smoke test and press ladder |
 | `package.py` | Wraps G-code in a `.gcode.3mf` from a Bambu Studio template |
-| `printer.py` | LAN Only upload (FTPS) and start/status (MQTT) |
+| `printer.py` | LAN Only upload (FTPS), start/status (MQTT), Bambu Connect hand-off |
 | `server.py` / `web/` | FastAPI backend and the browser UI |
 
 To add an effect, write a function in `effects.py` decorated with `@register(...)`. It must return polylines in area coordinates. The UI picks up its parameters automatically.

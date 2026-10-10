@@ -20,9 +20,12 @@ import json
 import os
 import re
 import ssl
+import subprocess
+import sys
 import threading
 import time
 from pathlib import Path
+from urllib.parse import quote
 
 from pydantic import BaseModel
 
@@ -284,15 +287,31 @@ def safe_name(stem: str) -> str:
     return f"{stem[:48]}-{time.strftime('%Y%m%d-%H%M%S')}"
 
 
+def build_job(gcode: str, stem: str, min_z: float, use_template: bool = True,
+              require_template: bool = False) -> tuple[str, bytes, str | None]:
+    """Validate and package a job: (file name, bytes, plate param or None for plain G-code)."""
+    problems = validate(gcode, min_z=min_z)
+    if problems:
+        raise PrinterError("Refusing to send unsafe G-code: " + "; ".join(problems[:5]))
+    tpl = template_path()
+    if use_template and tpl.exists():
+        tpl_bytes = tpl.read_bytes()
+        plate_param = package.inspect_template(tpl_bytes)["param"]
+        return safe_name(stem) + ".gcode.3mf", package.package(gcode, tpl_bytes), plate_param
+    if require_template:
+        raise PrinterError(
+            "Add a project template first (Printer tab). Bambu Connect only accepts .gcode.3mf files."
+        )
+    return safe_name(stem) + ".gcode", gcode.encode(), None
+
+
 def send_job(cfg: PrinterConfig, gcode: str, stem: str, min_z: float, start: bool,
              use_template: bool = True, timeout: float = 30) -> dict:
     """Validate, package, upload and optionally start a job. Returns what happened."""
     missing = cfg.ready()
     if missing:
         raise PrinterError("Printer settings incomplete: add " + " and ".join(missing) + ".")
-    problems = validate(gcode, min_z=min_z)
-    if problems:
-        raise PrinterError("Refusing to send unsafe G-code: " + "; ".join(problems[:5]))
+    name, data, plate_param = build_job(gcode, stem, min_z, use_template)
 
     if start:
         # Never start on top of another job.
@@ -300,20 +319,55 @@ def send_job(cfg: PrinterConfig, gcode: str, stem: str, min_z: float, start: boo
         if st["state"] in BUSY_STATES:
             raise PrinterError(f"The printer is busy ({st['state'].lower()}). Wait for it to finish.")
 
-    tpl = template_path()
-    plate_param = None
-    if use_template and tpl.exists():
-        tpl_bytes = tpl.read_bytes()
-        plate_param = package.inspect_template(tpl_bytes)["param"]
-        name = safe_name(stem) + ".gcode.3mf"
-        data = package.package(gcode, tpl_bytes)
-    else:
-        name = safe_name(stem) + ".gcode"
-        data = gcode.encode()
-
     upload(cfg, name, data, timeout=timeout)
     result = {"file": name, "bytes": len(data), "packaged": plate_param is not None, "started": False}
     if start:
         _session(cfg, start_request(cfg, name, plate_param), want_report=False, timeout=10)
         result["started"] = True
     return result
+
+
+# ------------------------------------------------------------ Bambu Connect
+
+KEEP_JOBS = 20
+
+
+def jobs_dir() -> Path:
+    return CONFIG_DIR / "jobs"
+
+
+def connect_url(path: Path, name: str) -> str:
+    """Bambu Connect's documented hand-off link (values encoded like encodeURIComponent)."""
+    enc = lambda v: quote(str(v), safe="-_.!~*'()")  # noqa: E731
+    return f"bambu-connect://import-file?path={enc(path)}&name={enc(name)}&version=1.0.0"
+
+
+def _open_url(url: str) -> None:
+    if sys.platform == "darwin":
+        cmd = ["open", url]
+    elif sys.platform.startswith("win"):
+        os.startfile(url)  # type: ignore[attr-defined]
+        return
+    else:
+        cmd = ["xdg-open", url]
+    result = subprocess.run(cmd, capture_output=True, text=True, timeout=15)
+    if result.returncode != 0:
+        raise PrinterError(
+            "Couldn't open Bambu Connect. Is it installed? "
+            "Get it from https://wiki.bambulab.com/en/software/bambu-connect"
+        )
+
+
+def open_in_bambu_connect(gcode: str, stem: str, min_z: float, opener=None) -> dict:
+    """Package the job, save it locally and hand it to Bambu Connect."""
+    name, data, _ = build_job(gcode, stem, min_z, require_template=True)
+    folder = jobs_dir()
+    folder.mkdir(parents=True, exist_ok=True)
+    path = (folder / name).resolve()
+    path.write_bytes(data)
+    old = sorted(folder.glob("*.gcode.3mf"), key=lambda p: p.stat().st_mtime)[:-KEEP_JOBS]
+    for p in old:
+        p.unlink(missing_ok=True)
+    url = connect_url(path, name.removesuffix(".gcode.3mf"))
+    (opener or _open_url)(url)
+    return {"file": name, "path": str(path), "url": url}

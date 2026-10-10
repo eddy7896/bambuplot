@@ -115,6 +115,14 @@ def cmd_send(args):
     print("started — go to the printer for Pause 1" if res["started"] else "start it from the printer's screen")
 
 
+def cmd_connect(args):
+    layout = _layout(args.layout)
+    min_z = min(layout.z.down, layout.z.touch - max(DEFAULT_PRESSES))
+    res = printer.open_in_bambu_connect(Path(args.gcode).read_text(), Path(args.gcode).stem, min_z=min_z)
+    print(f"saved {res['path']}")
+    print("opened in Bambu Connect: send it to the printer there, then start it at the printer")
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(prog="bambuplot", description="Images to pen-plotter G-code for the A1 Mini.")
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -164,6 +172,11 @@ def main(argv=None):
     sd.add_argument("--start", action="store_true", help="start printing right away (needs Developer Mode)")
     sd.add_argument("--plain", action="store_true", help="upload plain .gcode even if a template is set")
     sd.set_defaults(fn=cmd_send)
+
+    bc = sub.add_parser("connect", help="package a G-code file and open it in Bambu Connect")
+    bc.add_argument("gcode")
+    bc.add_argument("--layout", help="layout used to make the file (for the safety check)")
+    bc.set_defaults(fn=cmd_connect)
 
     args = ap.parse_args(argv)
     try:
