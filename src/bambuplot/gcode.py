@@ -1,0 +1,143 @@
+"""Compile pen paths into A1 Mini G-code with the manual touch-off start sequence.
+
+Start sequence:
+  1. Home with no pen in the holder.
+  2. Rise above the clips and move to the touch-off point.
+  3. PAUSE 1: clip the paper, insert the pen, lower it to touch the paper, tighten.
+  4. Hover 5 mm and trace the drawing area outline.
+  5. PAUSE 2: check the outline sits where you want.
+  6. Draw a small L test mark.
+  7. PAUSE 3: check the mark.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+
+import numpy as np
+
+from .layout import TOUCH_NAMES, Layout
+from .safety import GcodeSafetyError, validate
+
+
+class UnsafeLayout(ValueError):
+    def __init__(self, problems: list[str]):
+        self.problems = problems
+        super().__init__("Layout fails safety checks:\n" + "\n".join(problems))
+
+
+@dataclass
+class Stroke:
+    points: np.ndarray  # pen coordinates, mm
+    press: float | None = None  # override layout.z.press (calibration ladders)
+
+
+class _Writer:
+    def __init__(self):
+        self.lines: list[str] = []
+        self._last = ""
+
+    def __call__(self, cmd: str, comment: str | None = None):
+        self.lines.append(f"{cmd:<26}; {comment}" if comment else cmd)
+        self._last = cmd
+
+    def move(self, cmd: str):
+        if cmd != self._last:  # skip moves that round to the same spot
+            self(cmd)
+
+    def text(self) -> str:
+        return "\n".join(self.lines) + "\n"
+
+
+def _f(v: float) -> str:
+    return f"{v:.2f}"
+
+
+def _z(v: float) -> str:
+    return f"{v:.3f}".rstrip("0").rstrip(".")
+
+
+def _xy(layout: Layout, x: float, y: float) -> str:
+    nx, ny = layout.to_nozzle(np.array([x, y]))
+    return f"X{_f(nx)} Y{_f(ny)}"
+
+
+def start_sequence(w: _Writer, layout: Layout, title: str = "") -> None:
+    a, z, f, p = layout.area, layout.z, layout.feed, layout.paper.rect()
+    tx, ty, ix, iy = layout.touch_point()
+    xy = lambda x, y: _xy(layout, x, y)  # noqa: E731
+
+    w("; ===== BambuPlot start =====")
+    if title:
+        w(f"; job         {title}")
+    w(f"; paper       {layout.paper.size} {layout.paper.orientation}, front-left at X{_f(p.x)} Y{_f(p.y)}")
+    w(f"; area (pen)  X{_f(a.x)}-{_f(a.x2)} Y{_f(a.y)}-{_f(a.y2)} ({a.w:g} x {a.h:g} mm)")
+    w(f"; pen offset  dX {_f(layout.pen.offset_x)} dY {_f(layout.pen.offset_y)} (nozzle = pen - offset)")
+    w(f"; Z           touch {_z(z.touch)} down {_z(z.down)} up {_z(z.up)} safe {_z(layout.safe_z)}")
+    w("G90", "absolute positioning")
+    w("G21", "millimeters")
+    w(f"M204 S{f.accel}", "gentle acceleration")
+    w("G28", "home - pen NOT in the holder")
+    w(f"G1 Z{_z(layout.safe_z)} F{f.z}", "rise above the clips")
+    w(f"G1 {xy(tx, ty)} F{f.travel}", f"touch-off point: {TOUCH_NAMES[layout.touch_off]}")
+    w(f"G1 Z{_z(z.touch)} F{f.z_slow}", "touch-off height")
+    w("M400")
+    w("M400 U1", "PAUSE 1: clip paper, insert pen, lower tip to paper, tighten")
+    w(f"G1 Z{_z(z.trace)} F{f.z}", "hover 5 mm for the outline")
+    w(f"G1 {xy(a.x, a.y)} F{f.travel}")
+    w(f"G1 {xy(a.x2, a.y)} F{f.draw}", "trace drawing area")
+    w(f"G1 {xy(a.x2, a.y2)}")
+    w(f"G1 {xy(a.x, a.y2)}")
+    w(f"G1 {xy(a.x, a.y)}")
+    w("M400")
+    w("M400 U1", "PAUSE 2: check the outline sits where you want")
+    w(f"G1 {xy(tx, ty)} F{f.travel}")
+    w(f"G1 Z{_z(z.down)} F{f.z_slow}", "test mark")
+    w(f"G1 {xy(tx + 5 * ix, ty)} F{f.draw}")
+    w(f"G1 {xy(tx + 5 * ix, ty + 5 * iy)}")
+    w(f"G1 Z{_z(z.up)} F{f.z}")
+    w("M400")
+    w("M400 U1", "PAUSE 3: check the mark; re-seat pen if faint")
+    w("; ===== artwork =====")
+
+
+def end_sequence(w: _Writer, layout: Layout) -> None:
+    w("; ===== end =====")
+    w(f"G1 Z{_z(layout.safe_z)} F{layout.feed.z}", "lift clear of the clips")
+    w("M400")
+
+
+def compile_strokes(layout: Layout, strokes: list[Stroke], title: str = "", check_layout: bool = True) -> str:
+    if check_layout:
+        bad = [f"{c.title}: {c.detail}" for c in layout.checks() if c.state == "bad"]
+        if bad:
+            raise UnsafeLayout(bad)
+
+    z, f = layout.z, layout.feed
+    w = _Writer()
+    start_sequence(w, layout, title)
+    lowest = z.down
+    for s in strokes:
+        pts = np.asarray(s.points, float)
+        if len(pts) == 0:
+            continue
+        down = z.touch - (z.press if s.press is None else s.press)
+        lowest = min(lowest, down)
+        w.move(f"G1 {_xy(layout, *pts[0])} F{f.travel}")
+        w(f"G1 Z{_z(down)} F{f.z}")
+        if len(pts) > 1:
+            w(f"G1 {_xy(layout, *pts[1])} F{f.draw}")
+            for x, y in pts[2:]:
+                w.move(f"G1 {_xy(layout, x, y)}")
+        w(f"G1 Z{_z(z.up)} F{f.z}")
+    end_sequence(w, layout)
+
+    text = w.text()
+    problems = validate(text, min_z=lowest)
+    if problems:
+        raise GcodeSafetyError(problems)
+    return text
+
+
+def compile_lines(layout: Layout, lines_pen: list[np.ndarray], title: str = "") -> str:
+    return compile_strokes(layout, [Stroke(l) for l in lines_pen], title)
