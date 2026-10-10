@@ -16,6 +16,18 @@ Open http://127.0.0.1:8000. Two tabs:
 
 **Download G-code** is disabled while any safety check fails.
 
+### Rotation
+
+- **Paper and drawing area:** each can be rotated about its own center.
+  - Select one and drag the round knob above it (Shift snaps to 15°).
+  - Or press `[` / `]` to turn it 1°, with Shift for 15°.
+  - Or type an angle in the Bed setup tab.
+- **Drawing area shortcuts:** ↻ 90° / ↺ 90°, **Match paper** (copies the paper's angle, so a sheet clipped down at a slant still gets a square-on drawing), and **0°**.
+- **Fit to free space** and **Center** work at any angle. They search the free space along the area's own axes.
+- **Turn image** (Artwork tab) rotates the source picture in 90° steps before it is cropped to the area.
+
+All safety checks treat the paper and area as rotated rectangles. The outline trace, test mark and calibration jobs follow the area's rotation.
+
 ## Command line
 
 ```bash
@@ -53,7 +65,7 @@ None of this has been verified on a real A1 Mini yet.
 
 ## Coordinates
 
-Millimeters, origin at the plate's front-left corner, +X right, +Y toward the back.
+Millimeters, origin at the plate's front-left corner, +X right, +Y toward the back. Angles are degrees, counter-clockwise seen from above.
 
 - **Pen** coordinates: where the tip touches the paper.
 - **Nozzle** coordinates (what the G-code contains): pen − offset.
@@ -72,7 +84,8 @@ Every file passes through `safety.validate` before it is written. It is an allow
 
 | Module | Job |
 |---|---|
-| `layout.py` | Paper, clips, pen, Z and drawing-area model plus safety checks |
+| `layout.py` | Paper, clips, pen, Z and drawing-area model, rotated-rectangle geometry, safety checks |
+| `fit.py` | Largest safe drawing area at any rotation |
 | `image.py` | Load, crop to the area, CLAHE, contrast/gamma |
 | `effects.py` | Effect registry: waves, halftone, spiral, stipple |
 | `tsp.py` | Nearest-neighbor tour and 2-opt for stipple |

@@ -5,7 +5,7 @@ import pytest
 
 from bambuplot.calibrate import press_ladder, smoke_test
 from bambuplot.gcode import Stroke, UnsafeLayout, compile_strokes
-from bambuplot.layout import Layout, Rect
+from bambuplot.layout import Area, Layout
 from bambuplot.pipeline import make_plan, plan_to_gcode
 from bambuplot.safety import GcodeSafetyError, validate
 
@@ -58,7 +58,7 @@ def test_pen_offset_shifts_nozzle_coordinates():
 
 def test_unsafe_layout_is_refused():
     layout = Layout()
-    layout.area = Rect(x=22, y=-5, w=100, h=100)  # off the front of the plate, over the clips
+    layout.area = Area(x=22, y=-5, w=100, h=100)  # off the front of the plate, over the clips
     with pytest.raises(UnsafeLayout):
         compile_strokes(layout, [Stroke(np.array([[30.0, 30.0], [40.0, 30.0]]))])
 

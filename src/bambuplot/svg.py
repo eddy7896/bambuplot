@@ -8,15 +8,15 @@ from .layout import BED, Layout
 
 
 def to_svg(layout: Layout, lines_pen: list[np.ndarray]) -> str:
-    p, a = layout.paper.rect(), layout.area
-    x0 = min(BED.x, p.x) - 5
-    y0 = min(BED.y, p.y) - 5
-    x1 = max(BED.x2, p.x2) + 5
-    y1 = max(BED.y2, p.y2) + 5
+    paper, area = layout.paper.poly(), layout.area.poly()
+    pts = np.vstack([BED.poly(), paper])
+    x0, y0 = pts.min(axis=0) - 5
+    x1, y1 = pts.max(axis=0) + 5
     W, H = x1 - x0, y1 - y0
 
-    def rect(r, style):
-        return f'<rect x="{r.x - x0:.2f}" y="{y1 - r.y2:.2f}" width="{r.w:.2f}" height="{r.h:.2f}" style="{style}"/>'
+    def poly(p, style):
+        coords = " ".join(f"{x - x0:.2f},{y1 - y:.2f}" for x, y in p)
+        return f'<polygon points="{coords}" style="{style}"/>'
 
     parts = []
     for l in lines_pen:
@@ -27,9 +27,9 @@ def to_svg(layout: Layout, lines_pen: list[np.ndarray]) -> str:
     return (
         f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {W:.2f} {H:.2f}" '
         f'width="{W:.2f}mm" height="{H:.2f}mm">'
-        + rect(BED, "fill:#2c2d29")
-        + rect(p, "fill:#fdfdf9;stroke:#c3c6be;stroke-width:.4")
-        + rect(a, "fill:none;stroke:#2246c8;stroke-width:.3;stroke-dasharray:2 1")
+        + poly(BED.poly(), "fill:#2c2d29")
+        + poly(paper, "fill:#fdfdf9;stroke:#c3c6be;stroke-width:.4")
+        + poly(area, "fill:none;stroke:#2246c8;stroke-width:.3;stroke-dasharray:2 1")
         + f'<path d="{path}" style="fill:none;stroke:#1c2c8a;stroke-width:{layout.pen.width_mm};'
         'stroke-linecap:round;stroke-linejoin:round"/></svg>'
     )

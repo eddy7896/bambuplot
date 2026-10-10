@@ -63,15 +63,20 @@ def _xy(layout: Layout, x: float, y: float) -> str:
 
 
 def start_sequence(w: _Writer, layout: Layout, title: str = "") -> None:
-    a, z, f, p = layout.area, layout.z, layout.feed, layout.paper.rect()
-    tx, ty, ix, iy = layout.touch_point()
-    xy = lambda x, y: _xy(layout, x, y)  # noqa: E731
+    a, z, f, paper = layout.area, layout.z, layout.feed, layout.paper
+    lx, ly, ix, iy = layout.local_touch()
+
+    def xy(u: float, v: float) -> str:  # area-local point → nozzle words
+        x, y = layout.area_to_pen([u, v])
+        return _xy(layout, x, y)
 
     w("; ===== BambuPlot start =====")
     if title:
         w(f"; job         {title}")
-    w(f"; paper       {layout.paper.size} {layout.paper.orientation}, front-left at X{_f(p.x)} Y{_f(p.y)}")
-    w(f"; area (pen)  X{_f(a.x)}-{_f(a.x2)} Y{_f(a.y)}-{_f(a.y2)} ({a.w:g} x {a.h:g} mm)")
+    w(f"; paper       {paper.size} {paper.orientation}, front-left at X{_f(paper.x)} Y{_f(paper.y)}, "
+      f"rotated {paper.rotation:g} deg")
+    w(f"; area (pen)  {a.w:g} x {a.h:g} mm centered at X{_f(a.center[0])} Y{_f(a.center[1])}, "
+      f"rotated {a.rotation:g} deg")
     w(f"; pen offset  dX {_f(layout.pen.offset_x)} dY {_f(layout.pen.offset_y)} (nozzle = pen - offset)")
     w(f"; Z           touch {_z(z.touch)} down {_z(z.down)} up {_z(z.up)} safe {_z(layout.safe_z)}")
     w("G90", "absolute positioning")
@@ -79,22 +84,22 @@ def start_sequence(w: _Writer, layout: Layout, title: str = "") -> None:
     w(f"M204 S{f.accel}", "gentle acceleration")
     w("G28", "home - pen NOT in the holder")
     w(f"G1 Z{_z(layout.safe_z)} F{f.z}", "rise above the clips")
-    w(f"G1 {xy(tx, ty)} F{f.travel}", f"touch-off point: {TOUCH_NAMES[layout.touch_off]}")
+    w(f"G1 {xy(lx, ly)} F{f.travel}", f"touch-off point: {TOUCH_NAMES[layout.touch_off]}")
     w(f"G1 Z{_z(z.touch)} F{f.z_slow}", "touch-off height")
     w("M400")
     w("M400 U1", "PAUSE 1: clip paper, insert pen, lower tip to paper, tighten")
     w(f"G1 Z{_z(z.trace)} F{f.z}", "hover 5 mm for the outline")
-    w(f"G1 {xy(a.x, a.y)} F{f.travel}")
-    w(f"G1 {xy(a.x2, a.y)} F{f.draw}", "trace drawing area")
-    w(f"G1 {xy(a.x2, a.y2)}")
-    w(f"G1 {xy(a.x, a.y2)}")
-    w(f"G1 {xy(a.x, a.y)}")
+    w(f"G1 {xy(0, 0)} F{f.travel}")
+    w(f"G1 {xy(a.w, 0)} F{f.draw}", "trace drawing area")
+    w(f"G1 {xy(a.w, a.h)}")
+    w(f"G1 {xy(0, a.h)}")
+    w(f"G1 {xy(0, 0)}")
     w("M400")
     w("M400 U1", "PAUSE 2: check the outline sits where you want")
-    w(f"G1 {xy(tx, ty)} F{f.travel}")
+    w(f"G1 {xy(lx, ly)} F{f.travel}")
     w(f"G1 Z{_z(z.down)} F{f.z_slow}", "test mark")
-    w(f"G1 {xy(tx + 5 * ix, ty)} F{f.draw}")
-    w(f"G1 {xy(tx + 5 * ix, ty + 5 * iy)}")
+    w(f"G1 {xy(lx + 5 * ix, ly)} F{f.draw}")
+    w(f"G1 {xy(lx + 5 * ix, ly + 5 * iy)}")
     w(f"G1 Z{_z(z.up)} F{f.z}")
     w("M400")
     w("M400 U1", "PAUSE 3: check the mark; re-seat pen if faint")

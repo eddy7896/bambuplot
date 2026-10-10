@@ -5,6 +5,7 @@ from __future__ import annotations
 import io
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Literal
 
 import cv2
 import numpy as np
@@ -20,6 +21,7 @@ class Prep(BaseModel):
     brightness: float = Field(0.0, ge=-1, le=1)
     gamma: float = Field(1.0, gt=0)
     invert: bool = False
+    rotate: Literal[0, 90, 180, 270] = 0  # clockwise, applied before cropping
     px_per_mm: float = Field(4.0, gt=0, le=20)
 
 
@@ -111,6 +113,8 @@ def prepare(gray: np.ndarray | None, w: float, h: float, prep: Prep | None = Non
     if gray is None:
         data = sample_image(cols, rows, w, h)
     else:
+        if prep.rotate:
+            gray = np.rot90(gray, k=-(prep.rotate // 90))
         crop = cover_crop(gray, w / h)
         data = cv2.resize(crop, (cols, rows), interpolation=cv2.INTER_AREA)
         if prep.clahe:

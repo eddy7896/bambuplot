@@ -6,7 +6,7 @@ from PIL import Image
 
 from bambuplot import effects
 from bambuplot.image import Prep, cover_crop, prepare
-from bambuplot.layout import Layout, Rect
+from bambuplot.layout import Area, Layout
 from bambuplot.paths import merge, order_paths, rdp
 from bambuplot.server import app
 from bambuplot.tsp import nn_tour, path_length, two_opt
@@ -73,6 +73,6 @@ def test_api_plan_and_gcode_round_trip():
 def test_api_refuses_unsafe_layout():
     client = TestClient(app)
     lay = Layout()
-    lay.area = Rect(x=0, y=0, w=50, h=50)
+    lay.area = Area(x=0, y=0, w=50, h=50)
     r = client.post("/api/gcode", json={"effect": "spiral", "layout": lay.model_dump()})
     assert r.status_code == 422 and r.json()["detail"]["problems"]

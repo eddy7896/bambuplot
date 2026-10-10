@@ -25,8 +25,8 @@ class Plan:
 
 
 def touch_in_area(layout: Layout) -> tuple[float, float]:
-    tx, ty, _, _ = layout.touch_point()
-    return tx - layout.area.x, ty - layout.area.y
+    lx, ly, _, _ = layout.local_touch()
+    return lx, ly
 
 
 def make_plan(

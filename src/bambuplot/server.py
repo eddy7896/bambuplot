@@ -14,6 +14,7 @@ from pydantic import BaseModel, Field
 
 from . import effects
 from .calibrate import press_ladder, smoke_test
+from .fit import center_area, fit_area
 from .gcode import UnsafeLayout
 from .image import Prep, load_gray
 from .layout import Layout
@@ -100,6 +101,18 @@ def defaults():
 @app.post("/api/checks")
 def checks(layout: Layout):
     return [asdict(c) for c in layout.checks()]
+
+
+@app.post("/api/fit/{mode}")
+def fit(mode: str, layout: Layout):
+    if mode not in ("fit", "center"):
+        raise HTTPException(404, "Use 'fit' or 'center'.")
+    area = fit_area(layout) if mode == "fit" else center_area(layout)
+    if area is None:
+        msg = ("There's no safe room at this rotation. Move the paper or clips, or change the rotation."
+               if mode == "fit" else "The area doesn't fit in the free space at this size. Try Fit instead.")
+        raise HTTPException(422, msg)
+    return area.model_dump()
 
 
 @app.post("/api/image")
