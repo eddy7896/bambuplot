@@ -16,6 +16,26 @@ Open http://127.0.0.1:8000. Two tabs:
 
 **Download G-code** is disabled while any safety check fails.
 
+### Sources and vectorization
+
+The Artwork tab accepts PNG, JPG and SVG files.
+
+**SVG files** are drawn as vectors, using their own paths:
+- **Lines:** stroked lines are drawn as they are.
+- **Filled shapes:** these are outlined and can be hatch-filled, optionally cross-hatched. White shapes erase what's under them, so a white hole inside a black logo stays empty. A white page background is not outlined.
+- **Size:** **fit** scales the art to the drawing area. **actual size** keeps the file's real millimeters and cuts off anything outside the area.
+- **Not supported:** text and embedded pictures are skipped with a note. Convert text to paths in your editor first.
+
+**PNG/JPG files** can be turned into vector lines:
+
+| Effect | Best for | What it draws |
+|---|---|---|
+| Outline trace | Logos, silhouettes, posterized photos | Outlines around dark areas, hatch-filled. 2–4 tone levels add cross-hatching at new angles. |
+| Centerline trace | Sketches, line art, handwriting | One stroke down the middle of each drawn line, instead of two outlines. |
+| Contour lines | Photos, portraits | Lines of equal brightness, like a topographic map. |
+
+The tone effects (waves, halftone, spiral, stipple) are still there for photos.
+
 ### Rotation
 
 - **Paper and drawing area:** each can be rotated about its own center.
@@ -134,7 +154,9 @@ Every file passes through `safety.validate` before it is written. It is an allow
 | `layout.py` | Paper, clips, pen, Z and drawing-area model, rotated-rectangle geometry, safety checks |
 | `fit.py` | Largest safe drawing area at any rotation |
 | `image.py` | Load, crop to the area, CLAHE, contrast/gamma |
-| `effects.py` | Effect registry: waves, halftone, spiral, stipple |
+| `effects.py` | Effect registry: tone effects, trace effects, SVG paths |
+| `vectorize.py` | Threshold, outlines, hatching, centerline skeleton tracing, contour lines |
+| `svgin.py` | SVG reader: shapes, transforms, fills, visibility |
 | `tsp.py` | Nearest-neighbor tour and 2-opt for stipple |
 | `paths.py` | Clamp, simplify, order, merge, stats |
 | `gcode.py` | Start sequence with pauses, stroke compiler |

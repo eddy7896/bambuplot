@@ -15,6 +15,7 @@ from .layout import Layout
 from .pipeline import make_plan, plan_to_gcode
 from .package import TemplateError
 from .safety import GcodeSafetyError
+from .svgin import SvgError, load_svg
 from .svg import to_svg
 
 
@@ -46,15 +47,20 @@ def cmd_serve(args):
 
 def cmd_plot(args):
     layout = _layout(args.layout)
-    gray = load_gray(args.image) if args.image else None
+    is_svg = bool(args.image) and args.image.lower().endswith(".svg")
+    svg = load_svg(Path(args.image).read_bytes()) if is_svg else None
+    gray = load_gray(args.image) if args.image and not is_svg else None
+    effect = args.effect or ("svg" if is_svg else "waves")
+    for w in svg.warnings if svg else []:
+        print("note:", w)
     prep = Prep(clahe=not args.no_clahe, invert=args.invert)
-    plan = make_plan(layout, args.effect, _params(args.param), prep, gray)
+    plan = make_plan(layout, effect, _params(args.param), prep, gray, svg=svg)
     s = plan.stats
     print(f"{s['paths']} paths · {s['draw_m']} m of ink · {s['travel_m']} m travel · ~{s['minutes']} min")
     if args.svg:
         Path(args.svg).write_text(to_svg(layout, plan.pen_lines(layout)))
         print(f"preview → {args.svg}")
-    gcode = plan_to_gcode(layout, plan, title=f"{args.effect} from {Path(args.image).name if args.image else 'sample'}")
+    gcode = plan_to_gcode(layout, plan, title=f"{effect} from {Path(args.image).name if args.image else 'sample'}")
     Path(args.out).write_text(gcode)
     print(f"G-code  → {args.out}")
 
@@ -135,9 +141,9 @@ def main(argv=None):
     s.set_defaults(fn=cmd_serve)
 
     p = sub.add_parser("plot", help="turn an image into G-code")
-    p.add_argument("image", nargs="?", help="JPG/PNG; omit to use the built-in sample")
+    p.add_argument("image", nargs="?", help="JPG/PNG/SVG; omit to use the built-in sample")
     p.add_argument("--layout", help="layout JSON from the web app or init-layout")
-    p.add_argument("--effect", default="waves", choices=list(effects.EFFECTS))
+    p.add_argument("--effect", choices=list(effects.EFFECTS), help="default: svg for SVG files, else waves")
     p.add_argument("-p", "--param", action="append", help="effect parameter, e.g. -p spacing=2")
     p.add_argument("--no-clahe", action="store_true")
     p.add_argument("--invert", action="store_true")
@@ -187,6 +193,9 @@ def main(argv=None):
     except (printer.PrinterError, TemplateError) as err:
         print(f"Printer: {err}", file=sys.stderr)
         sys.exit(3)
+    except (SvgError, ValueError) as err:
+        print(f"Error: {err}", file=sys.stderr)
+        sys.exit(1)
 
 
 if __name__ == "__main__":

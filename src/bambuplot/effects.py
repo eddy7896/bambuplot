@@ -10,10 +10,13 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass, field
 from typing import Any, Callable
 
+import cv2
 import numpy as np
 from scipy.spatial import cKDTree
 
+from . import vectorize as vz
 from .image import Tone
+from .svgin import PX_TO_MM
 from .tsp import nn_tour, two_opt
 
 Lines = list[np.ndarray]
@@ -36,6 +39,7 @@ class Param:
 class Context:
     pen_width: float = 0.4
     seed: int = 0
+    svg: Any = None  # SvgArt for effects with source="svg"
 
 
 @dataclass
@@ -45,6 +49,8 @@ class Effect:
     description: str
     params: list[Param]
     fn: Callable[..., Lines] = field(repr=False)
+    source: str = "raster"  # "raster" (photos, the sample) or "svg"
+    resolution: float | None = None  # px/mm this effect wants from the tone field, at least
 
     def coerce(self, values: dict | None) -> dict:
         """Fill defaults, cast types, clamp to limits and drop unknown keys."""
@@ -76,6 +82,7 @@ class Effect:
             "name": self.name,
             "label": self.label,
             "description": self.description,
+            "source": self.source,
             "params": [asdict(p) for p in self.params],
         }
 
@@ -83,9 +90,10 @@ class Effect:
 EFFECTS: dict[str, Effect] = {}
 
 
-def register(name: str, label: str, description: str, params: list[Param]):
+def register(name: str, label: str, description: str, params: list[Param],
+             source: str = "raster", resolution: float | None = None):
     def deco(fn):
-        EFFECTS[name] = Effect(name, label, description, params, fn)
+        EFFECTS[name] = Effect(name, label, description, params, fn, source, resolution)
         return fn
 
     return deco
@@ -266,3 +274,212 @@ def stipple(tone: Tone, ctx: Context, points, iterations, mode, optimize_seconds
     if mode == "dots":
         return [p[None, :] for p in pts]
     return [pts]
+
+
+# ------------------------------------------------------------------- vector
+
+
+HATCH_ANGLES = (0, 90, 45, -45)  # added on top of the base angle, darkest levels last
+
+
+def _fill_and_outline(masks: list[np.ndarray], w: float, h: float, ctx: Context, outline: bool,
+                      fill: bool, spacing: float, angle: float) -> Lines:
+    """Outline each mask and hatch it; each darker mask adds a hatch at a new angle."""
+    out: Lines = []
+    for k, m in enumerate(masks):
+        if outline:
+            out += vz.outlines(m, w, h)
+        if fill:
+            out += vz.hatch(m, w, h, spacing, angle + HATCH_ANGLES[k % 4], min_len=ctx.pen_width)
+    return out
+
+
+@register(
+    "trace",
+    "Outline trace",
+    "Turns the image into vector shapes: outlines around dark areas, filled with hatching. "
+    "More levels give a posterized, cross-hatched look.",
+    [
+        Param("levels", "Tone levels", "int", 1, 1, 4, 1, help="1 = black and white"),
+        Param("auto_threshold", "Automatic threshold", "bool", True, help="Only for 1 level"),
+        Param("threshold", "Threshold", "float", 0.5, 0.05, 0.95, 0.05, help="Brightness cut-off, 0–1"),
+        Param("smoothing", "Smoothing", "float", 0.3, 0, 3, 0.05, help="mm of blur before tracing"),
+        Param("min_area", "Ignore specks under", "float", 1.0, 0, 50, 0.5, help="mm²"),
+        Param("outline", "Draw outlines", "bool", True),
+        Param("fill", "Hatch-fill dark areas", "bool", True),
+        Param("hatch_spacing", "Hatch spacing", "float", 0.8, 0.2, 10, 0.05, help="mm between hatch lines"),
+        Param("hatch_angle", "Hatch angle", "float", 45.0, -90, 90, 5, help="degrees"),
+    ],
+    resolution=8.0,
+)
+def trace(tone: Tone, ctx: Context, levels, auto_threshold, threshold, smoothing, min_area, outline, fill,
+          hatch_spacing, hatch_angle) -> Lines:
+    rows, cols = tone.data.shape
+    ppm = cols / tone.w
+    gray = vz.smooth(tone.data, smoothing * ppm)
+    if levels == 1:
+        cuts = [None if auto_threshold else threshold]
+    else:
+        cuts = [(levels - k) / (levels + 1) for k in range(levels)]  # lightest cut first
+    masks = [vz.clean_mask(vz.threshold(gray, t), min_area * ppm * ppm) for t in cuts]
+    return _fill_and_outline(masks, tone.w, tone.h, ctx, outline, fill, hatch_spacing, hatch_angle)
+
+
+@register(
+    "centerline",
+    "Centerline trace",
+    "For sketches, line art and handwriting: one stroke down the middle of each drawn line, "
+    "instead of an outline around it.",
+    [
+        Param("auto_threshold", "Automatic threshold", "bool", True),
+        Param("threshold", "Threshold", "float", 0.5, 0.05, 0.95, 0.05, help="Brightness cut-off, 0–1"),
+        Param("smoothing", "Smoothing", "float", 0.15, 0, 2, 0.05, help="mm of blur before tracing"),
+        Param("close_gaps", "Close gaps", "float", 0.0, 0, 2, 0.1, help="mm; joins broken lines"),
+        Param("min_length", "Drop strokes under", "float", 1.5, 0, 20, 0.5, help="mm"),
+    ],
+    resolution=8.0,
+)
+def centerline(tone: Tone, ctx: Context, auto_threshold, threshold, smoothing, close_gaps, min_length) -> Lines:
+    rows, cols = tone.data.shape
+    ppm = cols / tone.w
+    gray = vz.smooth(tone.data, smoothing * ppm)
+    mask = vz.threshold(gray, None if auto_threshold else threshold)
+    if close_gaps > 0:
+        r = max(1, int(round(close_gaps * ppm)))
+        kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (2 * r + 1, 2 * r + 1))
+        mask = cv2.morphologyEx(mask.astype(np.uint8), cv2.MORPH_CLOSE, kernel).astype(bool)
+    mask = vz.clean_mask(mask, (ctx.pen_width * ppm) ** 2)
+    return vz.centerlines(mask, tone.w, tone.h, min_length)
+
+
+@register(
+    "contours",
+    "Contour lines",
+    "Lines of equal brightness, like a topographic map of the image.",
+    [
+        Param("levels", "Number of levels", "int", 8, 2, 40, 1),
+        Param("smoothing", "Smoothing", "float", 0.6, 0, 5, 0.1, help="mm of blur before tracing"),
+        Param("min_length", "Drop lines under", "float", 2.0, 0, 50, 0.5, help="mm"),
+    ],
+    resolution=4.0,
+)
+def contours(tone: Tone, ctx: Context, levels, smoothing, min_length) -> Lines:
+    ppm = tone.data.shape[1] / tone.w
+    gray = vz.smooth(tone.data, smoothing * ppm)
+    cuts = [(k + 1) / (levels + 1) for k in range(levels)]
+    lines = vz.iso_lines(gray, cuts, tone.w, tone.h)
+    return [l for l in lines if np.hypot(*np.diff(l, axis=0).T).sum() >= min_length]
+
+
+# ---------------------------------------------------------------------- svg
+
+
+def _clip_to_box(line: np.ndarray, w: float, h: float) -> Lines:
+    """Cut a polyline at the area edges (Liang–Barsky per segment)."""
+    out: Lines = []
+    cur: list[np.ndarray] = []
+    for a, b in zip(line[:-1], line[1:]):
+        d = b - a
+        t0, t1 = 0.0, 1.0
+        ok = True
+        for p, q in ((-d[0], a[0]), (d[0], w - a[0]), (-d[1], a[1]), (d[1], h - a[1])):
+            if abs(p) < 1e-12:
+                if q < 0:
+                    ok = False
+                    break
+            else:
+                t = q / p
+                if p < 0:
+                    t0 = max(t0, t)
+                else:
+                    t1 = min(t1, t)
+        if not ok or t0 > t1:
+            if len(cur) > 1:
+                out.append(np.vstack(cur))
+            cur = []
+            continue
+        p0, p1 = a + t0 * d, a + t1 * d
+        if cur and np.allclose(cur[-1], p0):
+            cur.append(p1)
+        else:
+            if len(cur) > 1:
+                out.append(np.vstack(cur))
+            cur = [p0, p1]
+        if t1 < 1.0:
+            out.append(np.vstack(cur))
+            cur = []
+    if len(cur) > 1:
+        out.append(np.vstack(cur))
+    return out
+
+
+@register(
+    "svg",
+    "SVG paths",
+    "Draws the SVG's own lines. Filled shapes are outlined and hatch-filled.",
+    [
+        Param("fit", "Size", "choice", "fit", choices=["fit", "actual size"],
+              help="Fit scales the art to the drawing area"),
+        Param("margin", "Margin", "float", 0.0, 0, 30, 0.5, help="mm inside the drawing area"),
+        Param("strokes", "Draw stroked lines", "bool", True),
+        Param("outline_fills", "Outline filled shapes", "bool", True),
+        Param("hatch_fills", "Hatch-fill filled shapes", "bool", True),
+        Param("hatch_spacing", "Hatch spacing", "float", 0.8, 0.2, 10, 0.05, help="mm between hatch lines"),
+        Param("hatch_angle", "Hatch angle", "float", 45.0, -90, 90, 5, help="degrees"),
+        Param("cross_hatch", "Cross-hatch", "bool", False),
+    ],
+    source="svg",
+)
+def svg_paths(tone: Tone, ctx: Context, fit, margin, strokes, outline_fills, hatch_fills, hatch_spacing,
+              hatch_angle, cross_hatch) -> Lines:
+    art = ctx.svg
+    if art is None:
+        return []
+    w, h = tone.w, tone.h
+    x0, y0, x1, y1 = art.bbox()
+    bw, bh = max(x1 - x0, 1e-9), max(y1 - y0, 1e-9)
+    if fit == "fit":
+        s = min((w - 2 * margin) / bw, (h - 2 * margin) / bh)
+    else:
+        s = PX_TO_MM
+    s = max(s, 1e-9)
+    bx, by = (x0 + x1) / 2, (y0 + y1) / 2
+
+    def place(pts: np.ndarray) -> np.ndarray:  # SVG px (y down) → area mm (y up), centered
+        return np.column_stack([w / 2 + (pts[:, 0] - bx) * s, h / 2 - (pts[:, 1] - by) * s])
+
+    out: Lines = []
+    if strokes:
+        out += [place(l) for l in art.strokes]
+
+    if art.fills and (outline_fills or hatch_fills):
+        ppm = float(min(10.0, np.sqrt(4e6 / (w * h))))
+        shape = (max(2, int(round(h * ppm))), max(2, int(round(w * ppm))))
+        mask = np.zeros(shape, bool)
+        for f in art.fills:
+            rings = [place(r) for r in f.rings]
+            m = vz.rasterize_rings(rings, shape, w, h)
+            if f.dark:
+                mask |= m
+                if outline_fills:
+                    out += rings
+            else:
+                # A light fill erases what's under it; outline it only if it actually covers dark art,
+                # so a white page background doesn't become a border.
+                if outline_fills and m.any() and (m & mask).sum() > 0.05 * m.sum():
+                    out += rings
+                mask &= ~m
+        if hatch_fills:
+            out += vz.hatch(mask, w, h, hatch_spacing, hatch_angle, min_len=ctx.pen_width)
+            if cross_hatch:
+                out += vz.hatch(mask, w, h, hatch_spacing, hatch_angle + 90, min_len=ctx.pen_width)
+
+    clipped: Lines = []
+    for l in out:
+        if len(l) < 2:
+            continue
+        if l[:, 0].min() < 0 or l[:, 1].min() < 0 or l[:, 0].max() > w or l[:, 1].max() > h:
+            clipped += _clip_to_box(l, w, h)
+        else:
+            clipped.append(l)
+    return clipped

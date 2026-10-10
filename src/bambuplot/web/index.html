@@ -94,6 +94,8 @@ input:focus-visible,select:focus-visible,button:focus-visible{outline:2px solid 
 .cliplist button{border:0;background:none;color:var(--muted);font-size:16px;line-height:1;cursor:pointer;padding:2px 6px;border-radius:4px}
 .cliplist button:hover{color:var(--bad)}
 .thumb{display:flex;gap:10px;align-items:center;margin-top:8px;font-size:12px;color:var(--muted)}
+.notes{margin:8px 0 0;padding-left:18px;font-size:12px;color:var(--warn)}
+.thumb .btn{margin-left:auto;padding:4px 9px}
 .thumb img{width:56px;height:56px;object-fit:cover;border-radius:6px;border:1px solid var(--line);filter:grayscale(1)}
 .below{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:18px;margin-top:18px;align-items:start}
 @media (max-width:760px){.below{grid-template-columns:minmax(0,1fr)}}
@@ -207,10 +209,12 @@ input[type=file]{font:12px var(--font-ui);color:var(--muted);max-width:100%}
 
       <div id="pane-art" class="rail" role="tabpanel" aria-labelledby="tab-art">
         <div class="panel sec">
-          <h2>Image</h2>
-          <input type="file" id="file" accept="image/*" aria-label="Choose an image">
-          <div class="thumb" id="thumb"><span>No image loaded. The preview uses a sample sphere.</span></div>
-          <div class="g2" style="margin-top:12px">
+          <h2>Source</h2>
+          <input type="file" id="file" accept="image/png,image/jpeg,image/webp,image/svg+xml,.svg" aria-label="Choose a picture or SVG">
+          <div class="thumb" id="thumb"><span>No file loaded. The preview uses a sample sphere.</span></div>
+          <ul class="notes" id="srcNotes" hidden></ul>
+          <p class="hint">PNG or JPG: pick a tone effect, or trace it into vector lines. SVG: its own paths are drawn directly.</p>
+          <div class="g2" id="toneControls" style="margin-top:12px">
             <label class="f">Contrast<input type="number" id="P.contrast" step="0.05" min="0"></label>
             <label class="f">Brightness<input type="number" id="P.brightness" step="0.05" min="-1" max="1"></label>
             <label class="f">Gamma<input type="number" id="P.gamma" step="0.05" min="0.1"></label>
@@ -450,7 +454,7 @@ async function runPlan(){
   try{
     const r=await post('/api/plan',planBody());
     if(seq!==planSeq)return;
-    if(r.status===404&&job.image){job.image=null;renderThumb();setStatus('The server lost the image. Choose it again.',true);schedulePlan(0);return}
+    if(r.status===404&&job.image){job.image=null;renderThumb();buildEffects();setStatus('The server lost the file (it was restarted). Choose it again.',true);schedulePlan(0);return}
     if(!r.ok)throw new Error((await r.json().catch(()=>({}))).detail||r.statusText);
     const d=await r.json();if(seq!==planSeq)return;
     plan={lines:d.lines,stats:d.stats,w:L.area.w,h:L.area.h};checks=d.checks;
@@ -547,7 +551,7 @@ function placeInk(){
   const a=areaBox(),g=$('inkg'),pw=plan?.w||a.w,ph=plan?.h||a.h,[cx,cy]=centerOf(a);
   g.setAttribute('transform',`translate(${X(cx)} ${Y(cy)}) rotate(${-a.rot}) scale(${a.w/pw} ${a.h/ph}) translate(${-pw/2} ${-ph/2})`);
   const c=$('inkClipRect');c.setAttribute('width',pw);c.setAttribute('height',ph);
-  const im=$('srcimg'),turn=+job.prep.rotate||0,side=turn===90||turn===270;
+  const im=$('srcimg'),turn=srcKind()==='svg'?0:(+job.prep.rotate||0),side=turn===90||turn===270;
   im.setAttribute('width',side?ph:pw);im.setAttribute('height',side?pw:ph);
   im.setAttribute('x',side?(pw-ph)/2:0);im.setAttribute('y',side?(ph-pw)/2:0);
   im.setAttribute('transform',turn?`rotate(${turn} ${pw/2} ${ph/2})`:'');
@@ -635,7 +639,7 @@ $('addClip').onclick=()=>{L.clips.push({x:82,y:-6});sel='clip:'+(L.clips.length-
 $('fit').onclick=()=>fitRequest('fit');
 $('center').onclick=()=>fitRequest('center');
 $('aspect').onclick=()=>{
-  if(!job.image)return;const a=L.area,[cx,cy]=centerOf(a),turn=+job.prep.rotate||0;
+  if(!job.image)return;const a=L.area,[cx,cy]=centerOf(a),turn=srcKind()==='svg'?0:(+job.prep.rotate||0);
   const [iw,ih]=turn===90||turn===270?[job.image.h,job.image.w]:[job.image.w,job.image.h];
   a.h=Math.round(a.w*ih/iw*10)/10;a.x=cx-a.w/2;a.y=snapv(cy-a.h/2);changed(['area.h']);
 };
@@ -646,9 +650,19 @@ document.querySelectorAll('.tabs [role=tab]').forEach(t=>t.onclick=()=>{
 });
 
 /* effect + params */
+const TRACE_EFFECTS=['trace','centerline','contours'];
+const srcKind=()=>job.image?.kind==='svg'?'svg':'raster';
 function buildEffects(){
-  $('effect').innerHTML=effects.map(e=>`<option value="${e.name}">${esc(e.label)}</option>`).join('');
-  $('effect').value=job.effect;buildParams();
+  const kind=srcKind(),usable=effects.filter(e=>(e.source||'raster')===kind);
+  if(!usable.some(e=>e.name===job.effect)){
+    job.effect=kind==='svg'?'svg':(usable.some(e=>e.name===job.lastRaster)?job.lastRaster:'waves');
+  }
+  if(kind==='raster')job.lastRaster=job.effect;
+  const opt=e=>`<option value="${e.name}">${esc(e.label)}</option>`;
+  $('effect').innerHTML=kind==='svg'?usable.map(opt).join(''):
+    `<optgroup label="Trace to vector lines">${usable.filter(e=>TRACE_EFFECTS.includes(e.name)).map(opt).join('')}</optgroup>`+
+    `<optgroup label="Tone effects">${usable.filter(e=>!TRACE_EFFECTS.includes(e.name)).map(opt).join('')}</optgroup>`;
+  $('effect').value=job.effect;$('toneControls').hidden=kind==='svg';buildParams();
 }
 function buildParams(){
   const e=effects.find(x=>x.name===job.effect)||effects[0];job.effect=e.name;
@@ -670,19 +684,29 @@ $('effect').onchange=e=>{job.effect=e.target.value;buildParams();save();schedule
 
 /* image */
 function renderThumb(){
-  const t=$('thumb');
-  if(!job.image){t.innerHTML='<span>No image loaded. The preview uses a sample sphere.</span>';$('srcimg').setAttribute('href','');placeInk();syncInputs();return}
-  t.innerHTML=`<img src="${job.image.url}" alt=""><span>${job.image.w} × ${job.image.h} px</span>`;
-  $('srcimg').setAttribute('href',job.image.url);placeInk();syncInputs();
+  const t=$('thumb'),n=$('srcNotes'),im=job.image;
+  n.hidden=!(im?.warnings?.length);n.innerHTML=(im?.warnings||[]).map(w=>`<li>${esc(w)}</li>`).join('');
+  if(!im){t.innerHTML='<span>No file loaded. The preview uses a sample sphere.</span>';$('srcimg').setAttribute('href','');}
+  else{
+    const info=im.kind==='svg'
+      ?`SVG · ${im.strokes} line${im.strokes===1?'':'s'}, ${im.fills} filled shape${im.fills===1?'':'s'} · ${im.w} × ${im.h} mm`
+      :`${im.w} × ${im.h} px`;
+    t.innerHTML=`<img src="${im.url}" alt=""><span>${esc(im.name)}<br>${info}</span><button class="btn" type="button" id="clearSrc">Remove</button>`;
+    $('srcimg').setAttribute('href',im.url);
+    $('clearSrc').onclick=()=>{URL.revokeObjectURL(im.url);job.image=null;$('file').value='';renderThumb();buildEffects();save();schedulePlan(0)};
+  }
+  $('srcimg').setAttribute('preserveAspectRatio',im?.kind==='svg'?'xMidYMid meet':'xMidYMid slice');
+  placeInk();syncInputs();
 }
 $('file').onchange=async e=>{
-  const f=e.target.files[0];if(!f)return;setStatus('Uploading image…');
+  const f=e.target.files[0];if(!f)return;setStatus('Reading file…');
   const fd=new FormData();fd.append('file',f);
   try{
     const r=await fetch('/api/image',{method:'POST',body:fd});const d=await r.json();
     if(!r.ok)throw new Error(d.detail||r.statusText);
     if(job.image?.url)URL.revokeObjectURL(job.image.url);
-    job.image={id:d.id,w:d.width,h:d.height,url:URL.createObjectURL(f)};renderThumb();schedulePlan(0);
+    job.image={id:d.id,kind:d.kind,w:d.width,h:d.height,name:f.name,warnings:d.warnings||[],strokes:d.strokes,fills:d.fills,url:URL.createObjectURL(f)};
+    renderThumb();buildEffects();save();schedulePlan(0);
   }catch(err){setStatus('Upload failed: '+err.message,true)}
 };
 

@@ -23,6 +23,7 @@ from .paths import stats
 from .pipeline import Plan, make_plan, plan_to_gcode, touch_in_area
 from .package import TemplateError
 from .safety import GcodeSafetyError
+from .svgin import SvgArt, SvgError, load_svg
 
 WEB = Path(__file__).parent / "web"
 MAX_IMAGES = 16
@@ -53,11 +54,12 @@ def _remember(store: OrderedDict, key: str, value, limit: int):
 def _plan(req: PlanRequest) -> Plan:
     if req.effect not in effects.EFFECTS:
         raise HTTPException(422, f"Unknown effect '{req.effect}'")
-    gray = None
+    gray = svg = None
     if req.image_id:
         if req.image_id not in _images:
             raise HTTPException(404, "That image is no longer loaded. Upload it again.")
-        gray = _images[req.image_id]
+        src = _images[req.image_id]
+        svg, gray = (src, None) if isinstance(src, SvgArt) else (None, src)
     # Paths are area-local, so moving the area doesn't need a new plan; only
     # its size, the pen width, the touch-off corner and the inputs matter.
     lay = req.layout
@@ -75,7 +77,10 @@ def _plan(req: PlanRequest) -> Plan:
         _plans.move_to_end(key)
         plan = _plans[key]
     else:
-        plan = make_plan(lay, req.effect, req.params, req.prep, gray, req.seed)
+        try:
+            plan = make_plan(lay, req.effect, req.params, req.prep, gray, req.seed, svg=svg)
+        except (ValueError, SvgError) as err:
+            raise HTTPException(422, str(err))
         _remember(_plans, key, plan, MAX_PLANS)
     # Stats depend on feeds and Z, which aren't part of the cache key.
     return Plan(lines=plan.lines, stats=stats(plan.lines, lay, touch_in_area(lay)))
@@ -92,7 +97,7 @@ def index():
 
 @app.get("/api/version")
 def version():
-    return {"version": __version__, "features": ["rotation", "printer"]}
+    return {"version": __version__, "features": ["rotation", "printer", "vector"]}
 
 
 @app.get("/api/effects")
@@ -127,14 +132,27 @@ async def upload_image(file: UploadFile = File(...)):
     data = await file.read()
     if len(data) > MAX_UPLOAD:
         raise HTTPException(413, "Images must be under 25 MB.")
+    head = data[:4096].lstrip().lower()
+    if (file.filename or "").lower().endswith(".svg") or head.startswith(b"<svg") or (
+        head.startswith(b"<?xml") and b"<svg" in head
+    ):
+        try:
+            art = load_svg(data)
+            w, h = art.size_mm()
+        except SvgError as err:
+            raise HTTPException(422, str(err))
+        image_id = "svg-" + hashlib.sha1(data).hexdigest()[:16]
+        _remember(_images, image_id, art, MAX_IMAGES)
+        return {"id": image_id, "kind": "svg", "width": round(w, 1), "height": round(h, 1),
+                "warnings": art.warnings, "strokes": len(art.strokes), "fills": len(art.fills)}
     try:
         gray = load_gray(data)
     except Exception:
-        raise HTTPException(422, "That file isn't an image BambuPlot can read. Try a JPG or PNG.")
+        raise HTTPException(422, "That file isn't an image BambuPlot can read. Try a JPG, PNG or SVG.")
     image_id = hashlib.sha1(data).hexdigest()[:16]
     _remember(_images, image_id, gray, MAX_IMAGES)
     h, w = gray.shape
-    return {"id": image_id, "width": w, "height": h}
+    return {"id": image_id, "kind": "raster", "width": w, "height": h, "warnings": []}
 
 
 @app.post("/api/plan")
