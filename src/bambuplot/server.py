@@ -9,7 +9,7 @@ from dataclasses import asdict
 from pathlib import Path
 
 from fastapi import FastAPI, File, HTTPException, UploadFile
-from fastapi.responses import FileResponse, PlainTextResponse
+from fastapi.responses import FileResponse, PlainTextResponse, Response
 from pydantic import BaseModel, Field
 
 from . import effects
@@ -256,6 +256,18 @@ def send(req: SendRequest):
         return printer.send_job(printer.load_config(), text, stem, min_z=_min_z(req.layout), start=req.start)
     except (printer.PrinterError, TemplateError) as err:
         _printer_error(err)
+
+
+@app.post("/api/package")
+def package_job(req: SendRequest):
+    """The job as a .gcode.3mf built from the saved template, for Bambu Connect or the SD card."""
+    text, stem = _job_text(req)
+    try:
+        name, data, _ = printer.build_job(text, stem, min_z=_min_z(req.layout), require_template=True)
+    except (printer.PrinterError, TemplateError) as err:
+        raise HTTPException(422, str(err))
+    return Response(data, media_type="application/octet-stream",
+                    headers={"Content-Disposition": f'attachment; filename="{name}"'})
 
 
 @app.post("/api/connect")

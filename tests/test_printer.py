@@ -168,3 +168,14 @@ def test_connect_refuses_unsafe_gcode(home):
     printer.save_template(make_template())
     with pytest.raises(printer.PrinterError, match="unsafe"):
         printer.open_in_bambu_connect("G90\nG28\nG1 X300 Y10\n", "bad", min_z=2, opener=lambda u: None)
+
+
+def test_api_package_download(home):
+    client = TestClient(app)
+    body = {"kind": "smoke", "layout": Layout().model_dump()}
+    assert client.post("/api/package", json=body).status_code == 422  # no template yet
+    printer.save_template(make_template())
+    r = client.post("/api/package", json=body)
+    assert r.status_code == 200 and ".gcode.3mf" in r.headers["content-disposition"]
+    with zipfile.ZipFile(io.BytesIO(r.content)) as z:
+        assert "G28" in z.read("Metadata/plate_1.gcode").decode()

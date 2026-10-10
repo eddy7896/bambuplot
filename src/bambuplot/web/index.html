@@ -363,6 +363,7 @@ input[type=file]{font:12px var(--font-ui);color:var(--muted);max-width:100%}
       </div>
       <div class="btns">
         <button class="btn primary" type="button" id="dlG">Download G-code</button>
+        <button class="btn" type="button" id="dl3mf" title="For Bambu Connect or the SD card. Needs a project template (Printer tab).">Download .gcode.3mf</button>
         <button class="btn" type="button" id="dlSmoke">Smoke test</button>
         <button class="btn" type="button" id="dlPress">Press ladder</button>
         <button class="btn" type="button" id="sendOpen">Send to printer…</button>
@@ -579,7 +580,7 @@ function drawProgress(){
 }
 function renderChecks(){
   $('checks').innerHTML=checks.map(c=>`<li><span class="chip ${c.state}">${{ok:'ok',warn:'check',bad:'fail'}[c.state]}</span><b>${esc(c.title)}</b><small>${esc(c.detail)}</small></li>`).join('');
-  $('dlG').disabled=$('dlSmoke').disabled=$('dlPress').disabled=$('sendOpen').disabled=isBad();
+  $('dlG').disabled=$('dl3mf').disabled=$('dlSmoke').disabled=$('dlPress').disabled=$('sendOpen').disabled=isBad();
 }
 function renderStats(){
   const s=plan?.stats;if(!s)return;
@@ -695,6 +696,16 @@ $('importLayout').onchange=async e=>{
 
 /* downloads */
 $('dlG').onclick=()=>download('/api/gcode',planBody(),`bambuplot-${job.effect}.gcode`);
+$('dl3mf').onclick=async()=>{
+  $('problems').hidden=true;
+  try{
+    const r=await post('/api/package',{...planBody(),kind:'art'});
+    if(!r.ok){const e=await r.json().catch(()=>({}));showProblems(r.status===404?'The server is out of date. Restart it.':e.detail);return}
+    const name=(r.headers.get('Content-Disposition')||'').match(/filename="([^"]+)"/)?.[1]||'bambuplot.gcode.3mf';
+    const a=document.createElement('a');a.href=URL.createObjectURL(await r.blob());a.download=name;document.body.appendChild(a);a.click();a.remove();
+    setTimeout(()=>URL.revokeObjectURL(a.href),4000);setStatus(`Saved ${name}`);
+  }catch(_){showProblems('Could not reach the BambuPlot server.')}
+};
 $('dlSmoke').onclick=()=>download('/api/calibrate/smoke',L,'bambuplot-smoke.gcode');
 $('dlPress').onclick=()=>download('/api/calibrate/press',L,'bambuplot-press.gcode');
 
