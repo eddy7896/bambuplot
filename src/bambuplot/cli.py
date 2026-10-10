@@ -7,12 +7,13 @@ import json
 import sys
 from pathlib import Path
 
-from . import effects
-from .calibrate import press_ladder, smoke_test
+from . import effects, printer
+from .calibrate import DEFAULT_PRESSES, press_ladder, smoke_test
 from .gcode import UnsafeLayout
 from .image import Prep, load_gray
 from .layout import Layout
 from .pipeline import make_plan, plan_to_gcode
+from .package import TemplateError
 from .safety import GcodeSafetyError
 from .svg import to_svg
 
@@ -74,6 +75,43 @@ def cmd_init_layout(args):
     print(f"default layout → {args.out}")
 
 
+def cmd_printer(args):
+    cfg = printer.load_config()
+    if args.action == "show":
+        print(json.dumps(cfg.public(), indent=2))
+    elif args.action == "set":
+        if args.ip:
+            cfg.ip = args.ip
+        if args.serial:
+            cfg.serial = args.serial
+        if args.url_prefix:
+            cfg.url_prefix = args.url_prefix
+        printer.save_config(cfg)
+        print(f"saved → {printer.config_path()}")
+        if not cfg.code():
+            print(f"Add the access code by setting {printer.ACCESS_ENV}, or in the app's Printer tab.")
+    elif args.action == "template":
+        if not args.file:
+            raise SystemExit("bambuplot printer template FILE.gcode.3mf")
+        info = printer.save_template(Path(args.file).read_bytes())
+        print(f"template saved ({info['printer_model'] or 'unknown printer'}, uses {info['plate']})")
+        if info["warning"]:
+            print("warning:", info["warning"])
+    elif args.action == "test":
+        st = printer.status(cfg)
+        print(f"printer is {st['state']}" + (f", last file {st['file']}" if st["file"] else ""))
+
+
+def cmd_send(args):
+    layout = _layout(args.layout)
+    text = Path(args.gcode).read_text()
+    min_z = min(layout.z.down, layout.z.touch - max(DEFAULT_PRESSES))
+    res = printer.send_job(printer.load_config(), text, Path(args.gcode).stem, min_z=min_z,
+                           start=args.start, use_template=not args.plain)
+    print(f"uploaded {res['file']} ({res['bytes']:,} bytes)")
+    print("started — go to the printer for Pause 1" if res["started"] else "start it from the printer's screen")
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(prog="bambuplot", description="Images to pen-plotter G-code for the A1 Mini.")
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -108,12 +146,30 @@ def main(argv=None):
     i.add_argument("-o", "--out", default="layout.json")
     i.set_defaults(fn=cmd_init_layout)
 
+    pr = sub.add_parser("printer", help="printer connection settings")
+    pr.add_argument("action", choices=["show", "set", "template", "test"])
+    pr.add_argument("file", nargs="?", help="for 'template': an A1 mini .gcode.3mf from Bambu Studio")
+    pr.add_argument("--ip")
+    pr.add_argument("--serial")
+    pr.add_argument("--url-prefix")
+    pr.set_defaults(fn=cmd_printer)
+
+    sd = sub.add_parser("send", help="upload a G-code file to the printer (and optionally start it)")
+    sd.add_argument("gcode")
+    sd.add_argument("--layout", help="layout used to make the file (for the safety check)")
+    sd.add_argument("--start", action="store_true", help="start printing right away (needs Developer Mode)")
+    sd.add_argument("--plain", action="store_true", help="upload plain .gcode even if a template is set")
+    sd.set_defaults(fn=cmd_send)
+
     args = ap.parse_args(argv)
     try:
         args.fn(args)
     except (UnsafeLayout, GcodeSafetyError) as err:
         print(f"Refused: {err}", file=sys.stderr)
         sys.exit(2)
+    except (printer.PrinterError, TemplateError) as err:
+        print(f"Printer: {err}", file=sys.stderr)
+        sys.exit(3)
 
 
 if __name__ == "__main__":

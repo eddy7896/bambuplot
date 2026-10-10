@@ -13,13 +13,15 @@ from fastapi.responses import FileResponse, PlainTextResponse
 from pydantic import BaseModel, Field
 
 from . import effects
-from .calibrate import press_ladder, smoke_test
+from . import printer
+from .calibrate import DEFAULT_PRESSES, press_ladder, smoke_test
 from .fit import center_area, fit_area
 from .gcode import UnsafeLayout
 from .image import Prep, load_gray
 from .layout import Layout
 from .paths import stats
 from .pipeline import Plan, make_plan, plan_to_gcode, touch_in_area
+from .package import TemplateError
 from .safety import GcodeSafetyError
 
 WEB = Path(__file__).parent / "web"
@@ -159,3 +161,85 @@ def calibrate(kind: str, layout: Layout):
     except (UnsafeLayout, GcodeSafetyError, ValueError) as err:
         _refuse(err)
     return PlainTextResponse(text, headers={"Content-Disposition": f'attachment; filename="bambuplot-{kind}.gcode"'})
+
+
+# ------------------------------------------------------------------ printer
+
+
+class PrinterSettings(BaseModel):
+    ip: str = ""
+    serial: str = ""
+    access_code: str | None = None  # None keeps the saved code; "" clears it
+    url_prefix: str = "file:///sdcard/"
+
+
+class SendRequest(PlanRequest):
+    kind: str = "art"  # "art" | "smoke" | "press"
+    start: bool = False
+
+
+def _printer_error(err: Exception):
+    raise HTTPException(502 if isinstance(err, printer.PrinterError) else 422, str(err))
+
+
+@app.get("/api/printer")
+def printer_settings():
+    return printer.load_config().public()
+
+
+@app.post("/api/printer")
+def save_printer_settings(body: PrinterSettings):
+    cfg = printer.load_config()
+    cfg.ip, cfg.serial, cfg.url_prefix = body.ip.strip(), body.serial.strip(), body.url_prefix.strip()
+    if body.access_code is not None:
+        cfg.access_code = body.access_code.strip()
+    printer.save_config(cfg)
+    return cfg.public()
+
+
+@app.post("/api/printer/template")
+async def upload_template(file: UploadFile = File(...)):
+    data = await file.read()
+    if len(data) > MAX_UPLOAD:
+        raise HTTPException(413, "Templates must be under 25 MB.")
+    try:
+        return printer.save_template(data)
+    except TemplateError as err:
+        raise HTTPException(422, str(err))
+
+
+@app.delete("/api/printer/template")
+def remove_template():
+    printer.template_path().unlink(missing_ok=True)
+    return {"ok": True}
+
+
+@app.post("/api/printer/test")
+def test_printer():
+    cfg = printer.load_config()
+    missing = cfg.ready()
+    if missing:
+        raise HTTPException(422, "Add " + " and ".join(missing) + " first.")
+    try:
+        return printer.status(cfg)
+    except printer.PrinterError as err:
+        _printer_error(err)
+
+
+@app.post("/api/send")
+def send(req: SendRequest):
+    lay = req.layout
+    try:
+        if req.kind == "smoke":
+            text, stem = smoke_test(lay), "bambuplot-smoke"
+        elif req.kind == "press":
+            text, stem = press_ladder(lay), "bambuplot-press"
+        else:
+            text, stem = plan_to_gcode(lay, _plan(req), title=req.effect), f"bambuplot-{req.effect}"
+    except (UnsafeLayout, GcodeSafetyError, ValueError) as err:
+        _refuse(err)
+    min_z = min(lay.z.down, lay.z.touch - max(DEFAULT_PRESSES))
+    try:
+        return printer.send_job(printer.load_config(), text, stem, min_z=min_z, start=req.start)
+    except (printer.PrinterError, TemplateError) as err:
+        _printer_error(err)

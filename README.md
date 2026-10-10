@@ -28,6 +28,40 @@ Open http://127.0.0.1:8000. Two tabs:
 
 All safety checks treat the paper and area as rotated rectangles. The outline trace, test mark and calibration jobs follow the area's rotation.
 
+## Send to printer
+
+BambuPlot can upload jobs to the A1 Mini over your local network, and optionally start them.
+
+**On the printer:**
+1. Turn on **LAN Only mode**. Its screen shows the IP address and the access code.
+2. To start jobs from your computer (not just upload them), also turn on **Developer Mode**, then restart the printer. Developer Mode disconnects the Bambu cloud and the Handy app while it's on.
+
+**In the app, open the Printer tab:**
+1. Enter the IP address, the serial number and the access code, then press **Test connection**.
+2. Add a **project template**. Bambu printers start jobs from `.gcode.3mf` files. In Bambu Studio, slice any small model for the A1 mini, then choose File → Export → Export plate sliced file. BambuPlot puts each plot inside that file. Without a template, plain `.gcode` is uploaded and you start it from the printer's screen.
+
+**To send a job:** in the Job panel, choose **Send to printer…**, pick the artwork, the smoke test or the press ladder, then either:
+- **Upload only**, or
+- **Upload and start**, which first needs a tick confirming the holder is empty. The printer homes right away.
+
+You still put the pen in at Pause 1 at the printer.
+
+**Where settings are stored:** `~/.config/bambuplot/printer.json`, readable only by you. The access code can come from the `BAMBU_ACCESS_CODE` environment variable instead; that takes priority and is never written to disk.
+
+**Safety:**
+- Every job is re-checked by the safety validator before upload.
+- A job is never started while the printer reports it's busy.
+- Bambu's automatic steps (bed leveling, flow calibration, AMS) are switched off in the start command.
+
+**Network security:** the printer uses a self-signed certificate. The connection is encrypted, but the printer's identity isn't verified, so use this only on a network you trust.
+
+**Not yet tested on real hardware:**
+- the FTPS upload,
+- the MQTT start command,
+- the `file:///sdcard/` URL form.
+
+If uploads work but jobs won't start, try `ftp:///` as the URL prefix (Printer tab → Advanced).
+
 ## Command line
 
 ```bash
@@ -36,6 +70,10 @@ uv run bambuplot plot photo.jpg --layout layout.json --effect waves -p spacing=2
 uv run bambuplot calibrate smoke --layout layout.json -o smoke.gcode
 uv run bambuplot calibrate press --layout layout.json -o press.gcode
 uv run bambuplot effects                              # list effects and parameters
+uv run bambuplot printer set --ip 192.168.1.50 --serial 0300AA000000000
+uv run bambuplot printer template plate.gcode.3mf     # A1 mini sliced plate from Bambu Studio
+uv run bambuplot printer test                         # needs BAMBU_ACCESS_CODE or the app's saved code
+uv run bambuplot send photo.gcode --layout layout.json [--start]
 ```
 
 Layout files saved from the web app work with `--layout`.
@@ -93,6 +131,8 @@ Every file passes through `safety.validate` before it is written. It is an allow
 | `gcode.py` | Start sequence with pauses, stroke compiler |
 | `safety.py` | G-code allow-list validator |
 | `calibrate.py` | Smoke test and press ladder |
+| `package.py` | Wraps G-code in a `.gcode.3mf` from a Bambu Studio template |
+| `printer.py` | LAN Only upload (FTPS) and start/status (MQTT) |
 | `server.py` / `web/` | FastAPI backend and the browser UI |
 
 To add an effect, write a function in `effects.py` decorated with `@register(...)`. It must return polylines in area coordinates. The UI picks up its parameters automatically.

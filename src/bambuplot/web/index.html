@@ -76,7 +76,7 @@ header p{margin:0;color:var(--muted)}
 .f{display:flex;flex-direction:column;gap:3px;font-size:12px;color:var(--muted);min-width:0}
 .f.row{flex-direction:row;align-items:center;gap:8px;color:var(--ink);font-size:13px}
 .f small{font-size:11px;color:var(--muted)}
-input[type=number],select{font:500 13px var(--font-mono);font-variant-numeric:tabular-nums;padding:6px 8px;border:1px solid var(--line);border-radius:6px;background:var(--bg);color:var(--ink);width:100%;min-width:0}
+input[type=number],input[type=text],input[type=password],select{font:500 13px var(--font-mono);font-variant-numeric:tabular-nums;padding:6px 8px;border:1px solid var(--line);border-radius:6px;background:var(--bg);color:var(--ink);width:100%;min-width:0}
 input:focus-visible,select:focus-visible,button:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
 .seg{display:flex;border:1px solid var(--line);border-radius:6px;overflow:hidden}
 .seg button{flex:1;font:500 13px var(--font-ui);padding:6px 8px;border:0;background:var(--bg);color:var(--muted);cursor:pointer}
@@ -110,6 +110,10 @@ input:focus-visible,select:focus-visible,button:focus-visible{outline:2px solid 
 .nums span{font-size:11px;color:var(--muted);letter-spacing:.04em;text-transform:uppercase}
 .problems{margin:10px 0 0;padding:10px 12px;border:1px solid var(--bad);border-radius:8px;color:var(--bad);font-size:12px;background:var(--bad-soft)}
 .problems ul{margin:4px 0 0;padding-left:18px}
+.sendbox{margin-top:12px;padding:12px;border:1px solid var(--accent);border-radius:8px;background:var(--accent-soft);display:flex;flex-direction:column;gap:8px}
+.sendbox .warnline{margin:0;font-size:12px;color:var(--ink)}
+.msg{font-size:12px;margin:0}
+.msg.err{color:var(--bad)} .msg.ok{color:var(--ok)}
 .steps{margin:12px 0 0;padding-left:18px;font-size:12px;color:var(--muted)}
 .steps li{margin:2px 0}
 input[type=file]{font:12px var(--font-ui);color:var(--muted);max-width:100%}
@@ -198,6 +202,7 @@ input[type=file]{font:12px var(--font-ui);color:var(--muted);max-width:100%}
       <div class="panel tabs" role="tablist">
         <button role="tab" id="tab-art" aria-selected="true" aria-controls="pane-art">Artwork</button>
         <button role="tab" id="tab-setup" aria-selected="false" aria-controls="pane-setup">Bed setup</button>
+        <button role="tab" id="tab-printer" aria-selected="false" aria-controls="pane-printer">Printer</button>
       </div>
 
       <div id="pane-art" class="rail" role="tabpanel" aria-labelledby="tab-art">
@@ -315,6 +320,35 @@ input[type=file]{font:12px var(--font-ui);color:var(--muted);max-width:100%}
           </div>
         </div>
       </div>
+      <div id="pane-printer" class="rail" role="tabpanel" aria-labelledby="tab-printer" hidden>
+        <div class="panel sec">
+          <h2>Connection</h2>
+          <div class="g2">
+            <label class="f">IP address<input type="text" id="pr-ip" inputmode="decimal" placeholder="192.168.1.50" autocomplete="off"></label>
+            <label class="f">Serial number<input type="text" id="pr-serial" autocomplete="off"></label>
+            <label class="f" style="grid-column:1/-1">LAN access code<input type="password" id="pr-code" autocomplete="off"></label>
+          </div>
+          <div class="btns">
+            <button class="btn primary" type="button" id="pr-save">Save</button>
+            <button class="btn" type="button" id="pr-test">Test connection</button>
+          </div>
+          <p class="msg" id="pr-msg" role="status"></p>
+          <p class="hint">On the printer, turn on <b>LAN Only mode</b>; its screen shows the IP address and access code. To start jobs from here, also turn on <b>Developer Mode</b> and restart the printer. Developer Mode disconnects the Bambu cloud and the Handy app while it's on.</p>
+          <p class="hint">The access code is stored only on this computer, in a file only you can read. It is never sent back to the page.</p>
+        </div>
+        <div class="panel sec">
+          <h2>Project template</h2>
+          <p class="desc" id="tpl-info">No template yet. Plain .gcode will be uploaded.</p>
+          <label class="f">Choose a .gcode.3mf<input type="file" id="tpl-file" accept=".3mf"></label>
+          <div class="btns"><button class="btn" type="button" id="tpl-remove">Remove template</button></div>
+          <p class="hint">Bambu printers start jobs from .gcode.3mf files. In Bambu Studio, slice any small model for the A1 mini, then choose File → Export → Export plate sliced file. BambuPlot puts each plot inside that file. Nothing from the model gets printed.</p>
+        </div>
+        <div class="panel sec">
+          <h2>Advanced</h2>
+          <label class="f">Start URL prefix<input type="text" id="pr-url" autocomplete="off"></label>
+          <p class="hint">Leave this as file:///sdcard/ unless uploads work but jobs won't start. Some firmware expects ftp:/// instead.</p>
+        </div>
+      </div>
     </aside>
   </div>
 
@@ -331,6 +365,20 @@ input[type=file]{font:12px var(--font-ui);color:var(--muted);max-width:100%}
         <button class="btn primary" type="button" id="dlG">Download G-code</button>
         <button class="btn" type="button" id="dlSmoke">Smoke test</button>
         <button class="btn" type="button" id="dlPress">Press ladder</button>
+        <button class="btn" type="button" id="sendOpen">Send to printer…</button>
+      </div>
+      <div class="sendbox" id="sendbox" hidden>
+        <label class="f">What to send
+          <select id="send-kind"><option value="art">This artwork</option><option value="smoke">Smoke test</option><option value="press">Press ladder</option></select>
+        </label>
+        <p class="warnline">Starting a job makes the printer home right away. The pen holder must be empty and nothing can be near the nozzle. The pen goes in at Pause 1.</p>
+        <label class="f row"><input type="checkbox" id="send-ack"> The holder is empty and the bed is clear</label>
+        <div class="btns" style="margin-top:0">
+          <button class="btn" type="button" id="send-upload">Upload only</button>
+          <button class="btn primary" type="button" id="send-start" disabled>Upload and start</button>
+          <button class="btn" type="button" id="send-cancel">Close</button>
+        </div>
+        <p class="msg" id="send-msg" role="status"></p>
       </div>
       <div class="problems" id="problems" hidden></div>
       <ol class="steps">
@@ -529,7 +577,7 @@ function drawProgress(){
 }
 function renderChecks(){
   $('checks').innerHTML=checks.map(c=>`<li><span class="chip ${c.state}">${{ok:'ok',warn:'check',bad:'fail'}[c.state]}</span><b>${esc(c.title)}</b><small>${esc(c.detail)}</small></li>`).join('');
-  $('dlG').disabled=$('dlSmoke').disabled=$('dlPress').disabled=isBad();
+  $('dlG').disabled=$('dlSmoke').disabled=$('dlPress').disabled=$('sendOpen').disabled=isBad();
 }
 function renderStats(){
   const s=plan?.stats;if(!s)return;
@@ -695,6 +743,62 @@ svg.addEventListener('keydown',e=>{
   changed(['moved']);
 });
 
+
+/* ---------- printer ---------- */
+const errText=d=>typeof d==='string'?d:(d?.message?d.message+(d.problems?.length?': '+d.problems.slice(0,3).join('; '):''):'Something went wrong.');
+function msg(id,text,kind){const m=$(id);m.textContent=text;m.className='msg'+(kind?' '+kind:'')}
+let printerCfg=null;
+function renderPrinter(c){
+  printerCfg=c;$('pr-ip').value=c.ip;$('pr-serial').value=c.serial;$('pr-url').value=c.url_prefix;
+  const code=$('pr-code');code.value='';code.disabled=c.access_code_from_env;
+  code.placeholder=c.access_code_from_env?'Set by BAMBU_ACCESS_CODE':c.has_access_code?'Saved. Leave blank to keep it.':'8 characters, from the printer screen';
+  const t=c.template;
+  $('tpl-info').textContent=!t?'No template yet. Plain .gcode will be uploaded.':t.error?t.error:
+    `Template ready: sliced for the ${t.printer_model||'unknown printer'}, plots go into ${t.plate}.${t.warning?' '+t.warning:''}`;
+  $('tpl-remove').disabled=!t;
+}
+async function loadPrinter(){try{renderPrinter(await (await fetch('/api/printer')).json())}catch(_){}}
+async function savePrinter(){
+  const code=$('pr-code').value.trim();
+  const r=await post('/api/printer',{ip:$('pr-ip').value,serial:$('pr-serial').value,url_prefix:$('pr-url').value||'file:///sdcard/',access_code:code?code:null});
+  if(!r.ok){msg('pr-msg','Could not save the settings.','err');return false}
+  renderPrinter(await r.json());return true;
+}
+$('pr-save').onclick=async()=>{if(await savePrinter())msg('pr-msg','Saved.','ok')};
+$('pr-test').onclick=async()=>{
+  if(!await savePrinter())return;msg('pr-msg','Connecting…');
+  try{const r=await post('/api/printer/test',{}),d=await r.json();
+    if(!r.ok){msg('pr-msg',errText(d.detail),'err');return}
+    msg('pr-msg',`Connected. The printer is ${String(d.state||'unknown').toLowerCase()}.`,'ok');
+  }catch(_){msg('pr-msg','Could not reach the BambuPlot server.','err')}
+};
+$('tpl-file').onchange=async e=>{
+  const f=e.target.files[0];if(!f)return;const fd=new FormData();fd.append('file',f);
+  const r=await fetch('/api/printer/template',{method:'POST',body:fd}),d=await r.json();e.target.value='';
+  if(!r.ok){$('tpl-info').textContent=errText(d.detail);return}
+  loadPrinter();
+};
+$('tpl-remove').onclick=async()=>{await fetch('/api/printer/template',{method:'DELETE'});loadPrinter()};
+$('sendOpen').onclick=()=>{$('sendbox').hidden=false;$('send-ack').checked=false;$('send-start').disabled=true;msg('send-msg','');loadPrinter()};
+$('send-cancel').onclick=()=>{$('sendbox').hidden=true};
+$('send-ack').onchange=e=>{$('send-start').disabled=!e.target.checked};
+async function sendJob(start){
+  const kind=$('send-kind').value;
+  if(isBad()){msg('send-msg','Fix the failing safety checks first.','err');return}
+  if(printerCfg&&(!printerCfg.ip||!printerCfg.has_access_code)){msg('send-msg','Add the printer IP and access code in the Printer tab first.','err');return}
+  $('send-upload').disabled=$('send-start').disabled=true;msg('send-msg',start?'Uploading and starting…':'Uploading…');
+  try{
+    const r=await post('/api/send',{...planBody(),kind,start}),d=await r.json();
+    if(!r.ok){msg('send-msg',errText(d.detail),'err');return}
+    msg('send-msg',d.started?`Started ${d.file}. Go to the printer: at Pause 1, put the pen in and touch it to the paper.`
+      :`Uploaded ${d.file}. Start it from the printer's screen when you're ready.`,'ok');
+    $('send-ack').checked=false;
+  }catch(_){msg('send-msg','Could not reach the BambuPlot server.','err')}
+  finally{$('send-upload').disabled=false;$('send-start').disabled=!$('send-ack').checked}
+}
+$('send-upload').onclick=()=>sendJob(false);
+$('send-start').onclick=()=>sendJob(true);
+
 /* ---------- boot ---------- */
 (async function boot(){
   try{
@@ -704,7 +808,7 @@ svg.addEventListener('keydown',e=>{
     L=deepMerge(defs.layout,saved?.layout);job.prep=deepMerge(defs.prep,saved?.prep);
     job.effect=effects.some(e=>e.name===saved?.effect)?saved.effect:'waves';
     job.params=(saved?.params&&typeof saved.params==='object')?saved.params:{};
-    buildEffects();render();refreshChecks();schedulePlan(0);
+    buildEffects();render();refreshChecks();schedulePlan(0);loadPrinter();
   }catch(e){setStatus('Could not reach the BambuPlot server. Start it with `bambuplot serve`.',true)}
 })();
 </script>
