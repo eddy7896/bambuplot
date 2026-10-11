@@ -19,11 +19,27 @@ from dataclasses import dataclass
 from typing import Literal
 
 import numpy as np
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 BED_W = 180.0
 BED_H = 180.0
-PAPER_SIZES = {"A5": (148.0, 210.0), "A6": (105.0, 148.0)}
+# Portrait width × height in mm. "custom" uses Paper.width / Paper.height.
+PAPER_SIZES = {
+    "A5": (148.0, 210.0),
+    "A6": (105.0, 148.0),
+    "B6": (125.0, 176.0),
+    "Half Letter": (139.7, 215.9),
+    "Postcard 4×6 in": (101.6, 152.4),
+    "Square 140": (140.0, 140.0),
+}
+PAPER_LABELS = {
+    "A5": "A5 · 148 × 210",
+    "A6": "A6 · 105 × 148",
+    "B6": "B6 · 125 × 176",
+    "Half Letter": "Half Letter · 5½ × 8½ in",
+    "Postcard 4×6 in": "Postcard · 4 × 6 in",
+    "Square 140": "Square · 140 × 140",
+}
 MIN_AREA = 10.0
 EPS = 1e-6
 
@@ -112,14 +128,23 @@ BED = Rect(x=0, y=0, w=BED_W, h=BED_H)
 
 
 class Paper(BaseModel):
-    size: Literal["A5", "A6"] = "A5"
+    size: str = "A5"  # a PAPER_SIZES key, or "custom"
     orientation: Literal["portrait", "landscape"] = "portrait"
     x: float = 16.0  # left edge before rotation
     y: float = -15.0  # front edge before rotation (negative = hangs off the front)
     rotation: float = 0.0
     margin: float = 5.0  # keep the drawing this far inside the paper edges
+    width: float = Field(148.0, ge=10, le=400)  # used when size is "custom"
+    height: float = Field(210.0, ge=10, le=400)
+
+    @field_validator("size")
+    @classmethod
+    def _known_size(cls, v: str) -> str:
+        return v if v in PAPER_SIZES or v == "custom" else "A5"
 
     def dims(self) -> tuple[float, float]:
+        if self.size == "custom":
+            return self.width, self.height  # custom sizes are as drawn; orientation doesn't swap them
         w, h = PAPER_SIZES[self.size]
         return (h, w) if self.orientation == "landscape" else (w, h)
 
@@ -240,6 +265,11 @@ class Layout(BaseModel):
         keep_in = [self.paper.poly(self.paper.margin), BED.poly(), self.reach().poly()]
         keep_out = [k.poly() for k in self.keep_outs()]
         return keep_in, keep_out
+
+    def edge_distances(self, poly: np.ndarray) -> dict:
+        """How far a shape's outer edges are from each plate edge (negative = hangs over)."""
+        (x0, y0), (x1, y1) = poly.min(axis=0), poly.max(axis=0)
+        return {"left": float(x0), "front": float(y0), "right": float(BED_W - x1), "back": float(BED_H - y1)}
 
     def checks(self) -> list[Check]:
         a = self.area

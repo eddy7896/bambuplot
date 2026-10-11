@@ -22,7 +22,7 @@ from .fit import center_area, fit_area
 from .gcode import UnsafeLayout
 from . import mask as masking
 from .image import Prep, load_gray
-from .layout import Layout
+from .layout import PAPER_LABELS, PAPER_SIZES, Layout
 from .paths import stats
 from .pipeline import Plan, make_plan, plan_to_gcode, touch_in_area
 from .package import TemplateError
@@ -136,7 +136,9 @@ def list_effects():
 
 @app.get("/api/defaults")
 def defaults():
-    return {"layout": Layout().model_dump(), "prep": Prep().model_dump()}
+    return {"layout": Layout().model_dump(), "prep": Prep().model_dump(),
+            "paper_sizes": [{"key": k, "label": PAPER_LABELS[k], "w": w, "h": h} for k, (w, h) in PAPER_SIZES.items()],
+            "bed": [180, 180]}
 
 
 @app.post("/api/checks")

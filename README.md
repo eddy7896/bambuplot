@@ -121,6 +121,16 @@ Every setting is a slider with a live value. Settings that only matter in some m
 | | **Stipple** | Density contrast; drawn as one TSP line, pen taps, or small filled dots |
 | | **Dither dots** | Floyd–Steinberg, Atkinson or ordered dithering on a pen-sized grid |
 
+### Paper size and placement
+
+Set these in **Bed → Paper**:
+- **Presets:** A5, A6, B6, Half Letter, Postcard 4 × 6 in, or Square 140.
+- **Custom size…:** type a width and height, or press **Draw on Plate** and drag the sheet out on the bed. **Draw on Plate** under Drawing Area does the same for the drawing area.
+- **From bed edges:** Left / Front / Right / Back show how far the sheet (or drawing area) is from each plate edge. Type any of them to move it there. Negative means it hangs over.
+- **Center** puts the sheet in the middle of the plate.
+
+Select the paper or the drawing area on the plate and measurement lines show the same distances. Overhang is in red. The ruler button in the status bar turns the lines on and off.
+
 ### Rotation
 
 - **Paper and drawing area:** each can be rotated about its own center.

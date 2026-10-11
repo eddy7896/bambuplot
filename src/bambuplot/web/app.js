@@ -1,9 +1,10 @@
 const $=id=>document.getElementById(id);
-const PAPERS={A5:[148,210],A6:[105,148]};
+let PAPERS={A5:[148,210],A6:[105,148]}; // replaced by the server's list at boot
 const STORE='bambuplot.v1';
 const PLAN_KEYS=new Set(['area.w','area.h','pen.width_mm','touch_off']);
 let L=null, DEF=null, effects=[], job={effect:'waves',params:{},prep:{},image:null};
 let plan=null, checks=[], sel='area', drag=null, V=null, snap=true;
+let drawing=null, showDims=true; // draw-on-plate tool state; edge dimensions on/off
 let lineStr=[], travelStr=[], totalPts=0, planSeq=0;
 
 /* ---------- geometry (printer frame: +Y back, angles CCW in degrees) ---------- */
@@ -13,7 +14,18 @@ const grow=(r,m)=>R(r.x-m,r.y-m,r.w+2*m,r.h+2*m);
 const BED=R(0,0,180,180);
 const normAng=a=>{a=((a+180)%360+360)%360-180;return Math.round(a*10)/10||0};
 const rotPt=(x,y,deg)=>{const t=deg*Math.PI/180,c=Math.cos(t),s=Math.sin(t);return [x*c-y*s,x*s+y*c]};
-function paperBox(){let [w,h]=PAPERS[L.paper.size];if(L.paper.orientation==='landscape')[w,h]=[h,w];return {x:L.paper.x,y:L.paper.y,w,h,rot:L.paper.rotation||0}}
+function paperBox(){
+  let w,h;
+  if(L.paper.size==='custom'||!PAPERS[L.paper.size]){w=L.paper.width;h=L.paper.height}
+  else{[w,h]=PAPERS[L.paper.size];if(L.paper.orientation==='landscape')[w,h]=[h,w]}
+  return {x:L.paper.x,y:L.paper.y,w,h,rot:L.paper.rotation||0};
+}
+/* Distances from the plate edges to a shape's outer edges; negative means it hangs over. */
+function edgeDist(b){
+  const c=corners(b),xs=c.map(p=>p[0]),ys=c.map(p=>p[1]);
+  const x0=Math.min(...xs),x1=Math.max(...xs),y0=Math.min(...ys),y1=Math.max(...ys);
+  return {left:x0,front:y0,right:180-x1,back:180-y1,x0,x1,y0,y1};
+}
 const areaBox=()=>({...L.area,rot:L.area.rotation||0});
 const centerOf=b=>[b.x+b.w/2,b.y+b.h/2];
 /* local point (origin at the box's front-left corner, along its edges) → world */
@@ -137,9 +149,25 @@ function renderUnder(){
   h+=`<g ${rotAttr(p)}><rect class="paper${sel==='paper'?' sel':''}" data-drag="paper" ${rA(pr)}></rect></g>`;
   h+=`<g mask="url(#offbed)"><g ${rotAttr(p)}><rect class="overhang" ${rA(pr)}></rect></g></g>`;
   h+=`<g ${rotAttr(p)}><rect class="pmargin" ${rA(R(p.x+m,p.y+m,p.w-2*m,p.h-2*m))}></rect>`;
-  h+=`<text class="paperlbl" x="${X(p.x+2)}" y="${Y(y2(pr)-4.5)}">${L.paper.size} ${p.w} × ${p.h}${p.rot?` · ${fmt(p.rot)}°`:''}</text></g>`;
+  h+=`<text class="paperlbl" x="${X(p.x+2)}" y="${Y(y2(pr)-4.5)}">${L.paper.size==='custom'?'Custom':esc(L.paper.size)} ${fmt(p.w)} × ${fmt(p.h)}${p.rot?` · ${fmt(p.rot)}°`:''}</text></g>`;
   keepouts().forEach(k=>h+=`<rect class="keep" ${rA(k)}></rect>`);
   $('under').innerHTML=h;
+}
+/* CAD-style dimensions from each plate edge to the shape, drawn through its middle. */
+function dimsSVG(b){
+  const d=edgeDist(b),cx=(d.x0+d.x1)/2,cy=(d.y0+d.y1)/2;let h='';
+  const seg=(x1,y1,x2,y2,val,lx,ly,anchor)=>{
+    const over=val<-0.05,cls=over?' over':'',t=1.4;
+    const vert=Math.abs(x1-x2)<1e-6,tick=vert?`M${X(x1-t)} ${Y(y1)}H${X(x1+t)}M${X(x2-t)} ${Y(y2)}H${X(x2+t)}`:`M${X(x1)} ${Y(y1-t)}V${Y(y1+t)}M${X(x2)} ${Y(y2-t)}V${Y(y2+t)}`;
+    h+=`<path class="dimline${cls}" d="M${X(x1)} ${Y(y1)}L${X(x2)} ${Y(y2)}${tick}"></path>`;
+    h+=`<text class="dimlbl${cls}" x="${X(lx)}" y="${Y(ly)}" text-anchor="${anchor}">${over?`${fmt(-val)} over`:fmt(val)}</text>`;
+  };
+  if(Math.abs(d.left)>0.05)seg(0,cy,d.x0,cy,d.left,(0+d.x0)/2,cy+1.2,'middle');
+  if(Math.abs(d.right)>0.05)seg(d.x1,cy,180,cy,d.right,(d.x1+180)/2,cy+1.2,'middle');
+  if(Math.abs(d.front)>0.05)seg(cx,0,cx,d.y0,d.front,cx+1.6,(0+d.y0)/2-1.2,'start');
+  if(Math.abs(d.back)>0.05)seg(cx,d.y1,cx,180,d.back,cx+1.6,(d.y1+180)/2-1.2,'start');
+  if(b.rot)h+=`<rect class="dimext" x="${X(d.x0)}" y="${Y(d.y1)}" width="${(d.x1-d.x0).toFixed(2)}" height="${(d.y1-d.y0).toFixed(2)}"></rect>`;
+  return h;
 }
 function knob(b,kind){
   const [bx,by]=toWorld(b,b.w/2,b.h),[kx,ky]=toWorld(b,b.w/2,b.h+9);
@@ -161,6 +189,9 @@ function renderOver(){
   L.clips.forEach((c,i)=>{const r=clipRect(c);h+=`<rect class="clip${sel==='clip:'+i?' sel':''}" data-drag="clip:${i}" ${rA(r)} rx="1"></rect><text class="cliplbl" x="${X(r.x+r.w/2)}" y="${(V.y1-r.y-r.h/2+1.3).toFixed(2)}" text-anchor="middle">${i+1}</text>`});
   if(sel==='area')h+=knob(a,'area');
   if(sel==='paper')h+=knob(paperBox(),'paper');
+  if(showDims&&!drawing&&(sel==='paper'||sel==='area'))h+=dimsSVG(sel==='paper'?paperBox():areaBox());
+  if(drawing?.rect){const r=drawing.rect;h+=`<rect class="drawrect" ${rA(r)}></rect>`+dimsSVG({...r,rot:0})+
+    `<text class="dimlbl" x="${X(r.x+r.w/2)}" y="${Y(r.y+r.h/2)}" text-anchor="middle">${fmt(r.w)} × ${fmt(r.h)} mm</text>`}
   h+=`<path class="axis" d="M${X(0)} ${Y(0)}m0 7h12M${X(0)} ${Y(0)}m-7 0v-12"></path><path class="axisfill" d="M${X(12)} ${(V.y1+7).toFixed(2)}l-2.4 -1.3v2.6zM${(-V.x0-7).toFixed(2)} ${Y(12)}l-1.3 2.4h2.6z"></path>`;
   h+=`<text class="offlbl" x="${X(14)}" y="${(V.y1+8.2).toFixed(2)}">X</text><text class="offlbl" x="${(-V.x0-8.2).toFixed(2)}" y="${Y(14)}">Y</text><text class="offlbl" x="${X(0)}" y="${(V.y1+12.5).toFixed(2)}" text-anchor="middle">0,0</text>`;
   $('over').innerHTML=h;
@@ -230,13 +261,27 @@ function syncInputs(){
   document.querySelectorAll('#orient button').forEach(b=>b.setAttribute('aria-pressed',b.dataset.o===L.paper.orientation));
   $('cliplist').innerHTML=L.clips.map((c,i)=>`<li data-i="${i}" class="${sel==='clip:'+i?'sel':''}"><span>Clip ${i+1} · X ${fmt(c.x)} Y ${fmt(c.y)}</span><button type="button" aria-label="Remove clip ${i+1}" data-rm="${i}">×</button></li>`).join('');
   $('aspect').disabled=!job.image;
+  const custom=L.paper.size==='custom';$('pwField').hidden=$('phField').hidden=!custom;
+  for(const [kind,b] of [['paper',paperBox()],['area',areaBox()]]){
+    const d=edgeDist(b);
+    for(const side of ['left','front','right','back']){const el=$(`D.${kind}.${side}`);if(el!==document.activeElement)el.value=Math.round(d[side]*10)/10}
+  }
 }
+/* Typing a distance from a plate edge moves the shape so its outer edge lands there. */
+document.querySelectorAll('[id^="D."]').forEach(el=>el.addEventListener('input',()=>{
+  const v=parseFloat(el.value);if(!isFinite(v))return;
+  const [,kind,side]=el.id.split('.'),obj=kind==='paper'?L.paper:L.area,d=edgeDist(kind==='paper'?paperBox():areaBox());
+  const delta=v-d[side];
+  if(side==='left')obj.x+=delta;else if(side==='right')obj.x-=delta;else if(side==='front')obj.y+=delta;else obj.y-=delta;
+  obj.x=Math.round(obj.x*100)/100;obj.y=Math.round(obj.y*100)/100;sel=kind;changed(['moved']);
+}));
 function changed(keys){
   render();refreshChecks();save();
   if(keys.some(k=>PLAN_KEYS.has(k)||k.startsWith('feed.')||k.startsWith('z.')))schedulePlan();
 }
 for(const el of layoutInputs)el.addEventListener('input',()=>{
   const key=el.id.slice(2);let v=el.value;
+  if(key==='paper.size'&&v==='custom'&&L.paper.size!=='custom'){const b=paperBox();L.paper.width=b.w;L.paper.height=b.h}
   if(el.type==='number'){v=parseFloat(v);if(!isFinite(v))return;if(el.min!==''&&v<+el.min)return;if(el.max!==''&&v>+el.max)return}
   if(key.endsWith('rotation'))v=normAng(v);
   setP(L,key,v);changed([key]);
@@ -248,7 +293,9 @@ for(const el of prepInputs)el.addEventListener('input',()=>{
 });
 document.querySelectorAll('#orient button').forEach(b=>b.onclick=()=>{
   if(L.paper.orientation===b.dataset.o)return;const [cx,cy]=centerOf(paperBox());
-  L.paper.orientation=b.dataset.o;const q=paperBox();L.paper.x=snapv(cx-q.w/2);L.paper.y=snapv(cy-q.h/2);changed(['paper']);
+  L.paper.orientation=b.dataset.o;
+  if(L.paper.size==='custom'&&(b.dataset.o==='landscape')!==(L.paper.width>L.paper.height))[L.paper.width,L.paper.height]=[L.paper.height,L.paper.width];
+  const q=paperBox();L.paper.x=snapv(cx-q.w/2);L.paper.y=snapv(cy-q.h/2);changed(['paper']);
 });
 /* rotation buttons: data-rot="area:90" adds, "area:=0" sets, "area:=paper" copies the paper angle */
 function rotate(target,spec){
@@ -394,7 +441,19 @@ $('dlPress').onclick=()=>download('/api/calibrate/press',L,'bambuplot-press.gcod
 
 /* ---------- dragging ---------- */
 function toMM(e){const pt=svg.createSVGPoint();pt.x=e.clientX;pt.y=e.clientY;const q=pt.matrixTransform(svg.getScreenCTM().inverse());return {x:q.x+V.x0,y:V.y1-q.y}}
+function startDraw(kind){
+  drawing={kind,rect:null};svg.classList.add('drawing');
+  $('drawPaper').classList.toggle('on',kind==='paper');$('drawArea').classList.toggle('on',kind==='area');
+  setStatus(`Drag on the plate to draw the ${kind==='paper'?'paper':'drawing area'}. Esc cancels.`);
+}
+function stopDraw(){drawing=null;svg.classList.remove('drawing');$('drawPaper').classList.remove('on');$('drawArea').classList.remove('on');renderOver()}
+$('drawPaper').onclick=()=>drawing?.kind==='paper'?stopDraw():startDraw('paper');
+$('drawArea').onclick=()=>drawing?.kind==='area'?stopDraw():startDraw('area');
+$('centerPaper').onclick=()=>{const b=paperBox();L.paper.x=snapv(90-b.w/2);L.paper.y=snapv(90-b.h/2);sel='paper';changed(['moved'])};
+$('dimsBtn').onclick=()=>{showDims=!showDims;$('dimsBtn').setAttribute('aria-pressed',showDims);renderOver()};
+document.addEventListener('keydown',e=>{if(e.key==='Escape'&&drawing){stopDraw();setStatus('Drawing cancelled.')}});
 svg.addEventListener('pointerdown',e=>{
+  if(drawing){const m=toMM(e);drawing.start={x:snapv(m.x),y:snapv(m.y)};drawing.rect=null;svg.setPointerCapture(e.pointerId);e.preventDefault();return}
   const t=e.target.closest('[data-drag]');if(!t)return;
   const k=t.dataset.drag;drag={k,m:toMM(e),paper:{...L.paper},area:{...L.area},clips:L.clips.map(c=>({...c}))};
   sel=k.startsWith('h-')||k==='rot-area'?'area':k==='rot-paper'?'paper':k;
@@ -413,6 +472,11 @@ function resizeArea(o,corner,dx,dy){
 }
 let raf=0;
 svg.addEventListener('pointermove',e=>{
+  if(drawing?.start){
+    const m=toMM(e),a=drawing.start,bx=snapv(m.x),by=snapv(m.y);
+    drawing.rect=R(Math.min(a.x,bx),Math.min(a.y,by),Math.abs(bx-a.x),Math.abs(by-a.y));
+    if(!raf)raf=requestAnimationFrame(()=>{raf=0;renderOver()});return;
+  }
   if(!drag)return;const m=toMM(e),dx=m.x-drag.m.x,dy=m.y-drag.m.y,k=drag.k;
   if(k==='paper'){L.paper.x=snapv(drag.paper.x+dx);L.paper.y=snapv(drag.paper.y+dy)}
   else if(k==='area'){L.area.x=snapv(drag.area.x+dx);L.area.y=snapv(drag.area.y+dy)}
@@ -425,7 +489,15 @@ svg.addEventListener('pointermove',e=>{
   else L.area=resizeArea(drag.area,k.slice(2),dx,dy);
   if(!raf)raf=requestAnimationFrame(()=>{raf=0;render();refreshChecks()});
 });
-const end=()=>{if(!drag)return;const resized=drag.k.startsWith('h-');drag=null;changed(resized?['area.w']:['moved'])};
+const end=()=>{
+  if(drawing?.start){
+    const r=drawing.rect,kind=drawing.kind,min=kind==='paper'?20:10;stopDraw();
+    if(!r||r.w<min||r.h<min){setStatus(`Too small: draw at least ${min} × ${min} mm.`,true);return}
+    if(kind==='paper'){Object.assign(L.paper,{size:'custom',x:r.x,y:r.y,width:r.w,height:r.h,rotation:0,orientation:r.w>r.h?'landscape':'portrait'});sel='paper'}
+    else{L.area={...L.area,x:r.x,y:r.y,w:r.w,h:r.h,rotation:0};sel='area'}
+    changed(kind==='area'?['area.w']:['paper']);setStatus(`${kind==='paper'?'Paper':'Drawing area'} set to ${fmt(r.w)} × ${fmt(r.h)} mm.`);return;
+  }
+  if(!drag)return;const resized=drag.k.startsWith('h-');drag=null;changed(resized?['area.w']:['moved'])};
 svg.addEventListener('pointerup',end);svg.addEventListener('pointercancel',end);
 svg.addEventListener('keydown',e=>{
   if(e.key==='['||e.key===']'||e.key==='{'||e.key==='}'){
@@ -890,6 +962,10 @@ function askDelete(c){
   try{
     const [defs,effs]=await Promise.all([fetch('/api/defaults').then(r=>r.json()),fetch('/api/effects').then(r=>r.json())]);
     DEF=defs;effects=effs;L=deepMerge(defs.layout,null);job.prep=deepMerge(defs.prep,null);
+    if(defs.paper_sizes){
+      PAPERS=Object.fromEntries(defs.paper_sizes.map(p=>[p.key,[p.w,p.h]]));
+      $('L.paper.size').innerHTML=defs.paper_sizes.map(p=>`<option value="${esc(p.key)}">${esc(p.label)}</option>`).join('')+'<option value="custom">Custom size…</option>';
+    }
     loadPrinter();
     // First run with projects: keep the setup from before as a first project.
     const list=await (await fetch('/api/projects')).json();

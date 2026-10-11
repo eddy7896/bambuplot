@@ -191,20 +191,39 @@
             <button class="btn small" type="button" id="center">Center</button>
             <button class="btn small" type="button" id="aspect" disabled>Match Picture</button>
           </div>
+          <h3 class="subhead">From bed edges</h3>
+          <div class="grid4">
+            <label class="field" title="Plate's left edge to the area"><span>Left</span><input type="number" id="D.area.left" step="0.5"></label>
+            <label class="field" title="Plate's front edge to the area"><span>Front</span><input type="number" id="D.area.front" step="0.5"></label>
+            <label class="field" title="Area to the plate's right edge"><span>Right</span><input type="number" id="D.area.right" step="0.5"></label>
+            <label class="field" title="Area to the plate's back edge"><span>Back</span><input type="number" id="D.area.back" step="0.5"></label>
+          </div>
+          <div class="btnrow tight"><button class="btn small" type="button" id="drawArea" title="Drag on the plate to draw the drawing area">Draw on Plate</button></div>
           <div class="srow sw"><label for="snap">Snap to 1 mm</label><input type="checkbox" class="switch" id="snap" checked></div>
           <p class="foot">Drag the knob above a selected shape to rotate it (Shift snaps to 15°). Arrow keys nudge it 1 mm; [ and ] turn it 1°.</p>
         </details>
         <details class="group" open>
           <summary><h2>Paper</h2></summary>
           <div class="grid2">
-            <label class="field"><span>Size</span><select id="L.paper.size"><option value="A5">A5 · 148 × 210</option><option value="A6">A6 · 105 × 148</option></select></label>
+            <label class="field"><span>Size</span><select id="L.paper.size"></select></label>
             <div class="field"><span>Orientation</span>
               <div class="segmented mini" id="orient"><button type="button" data-o="portrait">Portrait</button><button type="button" data-o="landscape">Landscape</button></div>
             </div>
-            <label class="field"><span>Left edge X</span><input type="number" id="L.paper.x" step="0.5"></label>
-            <label class="field"><span>Front edge Y</span><input type="number" id="L.paper.y" step="0.5"></label>
+            <label class="field" id="pwField"><span>Width</span><input type="number" id="L.paper.width" step="0.5" min="10" max="400"></label>
+            <label class="field" id="phField"><span>Height</span><input type="number" id="L.paper.height" step="0.5" min="10" max="400"></label>
             <label class="field"><span>Margin</span><input type="number" id="L.paper.margin" step="0.5" min="0"></label>
             <label class="field"><span>Rotation °</span><input type="number" id="L.paper.rotation" step="1"></label>
+          </div>
+          <h3 class="subhead">From bed edges <small>negative = hangs over</small></h3>
+          <div class="grid4">
+            <label class="field" title="Plate's left edge to the paper"><span>Left</span><input type="number" id="D.paper.left" step="0.5"></label>
+            <label class="field" title="Plate's front edge to the paper"><span>Front</span><input type="number" id="D.paper.front" step="0.5"></label>
+            <label class="field" title="Paper to the plate's right edge"><span>Right</span><input type="number" id="D.paper.right" step="0.5"></label>
+            <label class="field" title="Paper to the plate's back edge"><span>Back</span><input type="number" id="D.paper.back" step="0.5"></label>
+          </div>
+          <div class="btnrow tight">
+            <button class="btn small" type="button" id="drawPaper" title="Drag on the plate to draw a custom paper size">Draw on Plate</button>
+            <button class="btn small" type="button" id="centerPaper" title="Center the paper on the plate">Center</button>
           </div>
           <div class="btnrow tight">
             <button class="btn small" type="button" data-rot="paper:-1">−1°</button>
@@ -292,6 +311,9 @@
       </button>
       <button class="iconbtn" type="button" id="imgBtn" aria-pressed="true" title="Show the source picture under the plot">
         <svg viewBox="0 0 20 20" aria-hidden="true"><rect x="3" y="4" width="14" height="12" rx="2"/><path d="m4 14 4-4 3 3 2-2 3 3"/></svg>
+      </button>
+      <button class="iconbtn" type="button" id="dimsBtn" aria-pressed="true" title="Show distances from the plate edges">
+        <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M3 7v6M17 7v6M3 10h14M6 8.5 3 10l3 1.5M14 8.5l3 1.5-3 1.5"/></svg>
       </button>
       <input type="checkbox" id="showTravel" hidden><input type="checkbox" id="showImg" checked hidden>
     </div>
