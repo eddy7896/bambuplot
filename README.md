@@ -5,7 +5,7 @@ Turn images into pen-plotter G-code for the Bambu Lab A1 Mini, using a clip-on p
 ## Run it
 
 ```bash
-uv sync
+uv sync                 # add --extra ai for AI background removal
 uv run bambuplot serve
 ```
 
@@ -36,7 +36,7 @@ The Artwork tab accepts PNG, JPG and SVG files.
 
 ### Subject selection and background removal
 
-For PNG and JPG pictures, the Source panel has **Remove background** and **Select subject…**. Removed areas become paper white, so no effect puts ink there. Everything runs locally with OpenCV; no AI model is downloaded.
+For PNG and JPG pictures, the Source panel has **Remove background** and **Select subject…**. Removed areas become paper white, so no effect puts ink there. The non-AI tools run locally with OpenCV and need no downloads.
 
 - **Remove background (automatic):**
   - On a plain, even background (product shots, scans), it removes everything that matches the background color and touches the picture's edge.
@@ -45,6 +45,18 @@ For PNG and JPG pictures, the Source panel has **Remove background** and **Selec
   - **Box select:** drag a box around the subject and GrabCut cuts it out.
   - **Erase / Restore brushes:** paint areas out or back in. Turn on **Smart edges** to let GrabCut snap your strokes to the subject's real outline.
   - **Invert, Grow, Shrink, Undo** (⌘Z), **Reset.** Keyboard: B, E and R switch tools.
+- **AI remove background** (optional, uses [rembg](https://github.com/danielgatis/rembg)): one click, and it works on busy photos.
+  - Install it with `uv sync --extra ai`. Without it, the button is hidden and the app explains how to add it.
+  - Pick a model in the Source panel. Each one downloads from rembg's GitHub releases the first time you use it, into `~/.rembg/models/`.
+
+    | Model | Best for | Download |
+    |---|---|---|
+    | General (ISNet) | Most pictures (default) | 170 MB |
+    | Finest detail (BiRefNet lite) | Hair, fur, fine edges; slower | 214 MB |
+    | People (U²-Net human) | Portraits | 168 MB |
+    | Small and quick (Silueta) | Fast checks | 42 MB |
+    | Fastest (U²-Netp) | Rough cut-outs | 4.4 MB |
+  - The result can be refined with the editor's brushes like any other selection.
 - **Transparent PNGs** (already cut out) start with their transparency as the selection.
 - **Use selection** switches the cut-out on and off without losing it. **Edge softness** feathers the cut.
 

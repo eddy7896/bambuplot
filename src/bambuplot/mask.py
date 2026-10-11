@@ -306,3 +306,87 @@ def describe(state: MaskState, method: str | None = None) -> dict:
         "method": method,
         "work_size": [w, h],
     }
+
+
+# ------------------------------------------------------------- AI (rembg)
+
+# Offered models: name → (label, download size in MB). Sizes from rembg's GitHub release files.
+AI_MODELS = {
+    "isnet-general-use": ("General (recommended)", 170),
+    "birefnet-general-lite": ("Finest detail, slower", 214),
+    "u2net_human_seg": ("People and portraits", 168),
+    "silueta": ("Small and quick", 42),
+    "u2netp": ("Fastest, rough edges", 4.4),
+}
+_sessions: dict = {}
+_session_lock = threading.Lock()
+
+
+def ai_available() -> bool:
+    try:
+        import rembg  # noqa: F401
+    except Exception:
+        return False
+    return True
+
+
+def _session_class(name: str):
+    from rembg.sessions import sessions_class
+
+    for cls in sessions_class:
+        if cls.name() == name:
+            return cls
+    raise MaskError(f"Unknown AI model '{name}'.")
+
+
+def ai_models() -> list[dict]:
+    out = []
+    for name, (label, mb) in AI_MODELS.items():
+        try:
+            downloaded = _session_class(name).resolve_existing(f"{name}.onnx") is not None
+        except Exception:
+            downloaded = False
+        out.append({"name": name, "label": label, "size_mb": mb, "downloaded": downloaded})
+    return out
+
+
+def _session(name: str):
+    if name not in AI_MODELS:
+        raise MaskError(f"Unknown AI model '{name}'.")
+    with _session_lock:
+        if name not in _sessions:
+            from rembg import new_session
+
+            try:
+                _sessions[name] = new_session(name)  # downloads the model the first time
+            except Exception as err:
+                raise MaskError(
+                    f"Couldn't load the {AI_MODELS[name][0].lower()} model ({type(err).__name__}). "
+                    "The first use downloads it from GitHub; check the internet connection."
+                ) from err
+        return _sessions[name]
+
+
+def ai_remove(state: MaskState, model: str = "isnet-general-use") -> str:
+    """Background removal with a rembg model. Returns the model's label."""
+    if not ai_available():
+        raise MaskError("AI background removal isn't installed. Run: uv sync --extra ai")
+    from rembg import remove
+
+    session = _session(model)
+    with state.lock:
+        state._push()
+        try:
+            out = remove(Image.fromarray(state.rgb), session=session, only_mask=True, post_process_mask=True)
+        except Exception as err:
+            state.history.pop()
+            raise MaskError(f"The AI model failed on this picture ({type(err).__name__}).") from err
+        keep = (np.asarray(out.convert("L").resize(state.size)) > 127).astype(np.uint8)
+        if keep.mean() < 0.005:
+            state.history.pop()
+            raise MaskError("The AI found no subject. Try another model, or use Select subject.")
+        state.labels = _labels_from_mask(keep)
+        state.bgd[:] = 0
+        state.fgd[:] = 0
+        state._done(keep)
+    return AI_MODELS[model][0]

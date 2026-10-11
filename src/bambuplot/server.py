@@ -114,7 +114,7 @@ def index():
 
 @app.get("/api/version")
 def version():
-    return {"version": __version__, "features": ["rotation", "printer", "vector", "selection"]}
+    return {"version": __version__, "features": ["rotation", "printer", "vector", "selection", "ai"]}
 
 
 @app.get("/api/effects")
@@ -186,6 +186,7 @@ class MaskOp(BaseModel):
     strokes: list[dict] = Field(default_factory=list)
     smart: bool = False
     amount: int = 0
+    model: str = "isnet-general-use"
 
 
 def _raster(image_id: str) -> RasterSource:
@@ -195,6 +196,13 @@ def _raster(image_id: str) -> RasterSource:
     if not isinstance(src, RasterSource):
         raise HTTPException(422, "Selection tools work on PNG and JPG pictures, not SVG files.")
     return src
+
+
+@app.get("/api/ai")
+def ai_info():
+    available = masking.ai_available()
+    return {"available": available, "models": masking.ai_models() if available else [],
+            "install": "uv sync --extra ai"}
 
 
 @app.get("/api/image/{image_id}/mask")
@@ -209,6 +217,8 @@ def edit_mask(image_id: str, body: MaskOp):
     try:
         if body.op == "auto":
             method = masking.auto(st)
+        elif body.op == "ai":
+            method = "ai:" + masking.ai_remove(st, body.model)
         elif body.op == "select":
             if not body.rect or len(body.rect) != 4:
                 raise HTTPException(422, "Draw a box around the subject first.")

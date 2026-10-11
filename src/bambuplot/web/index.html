@@ -110,6 +110,9 @@ input:focus-visible,select:focus-visible,button:focus-visible{outline:2px solid 
 .ed-bar{display:flex;flex-wrap:wrap;align-items:center;gap:10px 16px;padding:12px 14px;border-bottom:1px solid var(--line)}
 .ed-bar h2{font-size:15px;margin:0 6px 0 0}
 .ed-size{min-width:150px}
+.aibox{display:flex;align-items:flex-end;gap:8px;margin-top:8px}
+.aibox .f{flex:1;min-width:0}
+.hint code{font:12px var(--font-mono);background:var(--bg);padding:1px 4px;border-radius:4px}
 #edTools button{white-space:nowrap;padding:6px 12px}
 .ed-actions{margin:0 0 0 auto}
 .ed-stage{flex:1;min-height:0;display:flex;align-items:center;justify-content:center;padding:14px;background:var(--bg)}
@@ -240,6 +243,11 @@ input[type=file]{font:12px var(--font-ui);color:var(--muted);max-width:100%}
               <button class="btn" type="button" id="selAuto">Remove background</button>
               <button class="btn" type="button" id="selEdit">Select subject…</button>
             </div>
+            <div class="aibox" id="aiBox" hidden>
+              <label class="f">AI model<select id="aiModel" aria-label="AI model"></select></label>
+              <button class="btn" type="button" id="selAI">AI remove background</button>
+            </div>
+            <p class="hint" id="aiInstall" hidden>For one-click AI background removal, run <code>uv sync --extra ai</code> and restart BambuPlot.</p>
             <p class="hint" id="selInfo">Nothing removed yet.</p>
             <div class="g2" id="selOpts" hidden>
               <label class="f row"><input type="checkbox" id="P.use_mask"> Use selection</label>
@@ -450,6 +458,7 @@ input[type=file]{font:12px var(--font-ui);color:var(--muted);max-width:100%}
       <label class="f row" title="The brush finds the subject's real edge instead of painting exactly"><input type="checkbox" id="edSmart"> Smart edges</label>
       <div class="btns ed-actions">
         <button class="btn" type="button" id="edAuto">Remove background</button>
+        <button class="btn" type="button" id="edAI" hidden>AI remove</button>
         <button class="btn" type="button" id="edInvert">Invert</button>
         <button class="btn" type="button" id="edShrink" title="Shrink the kept area a little">Shrink</button>
         <button class="btn" type="button" id="edGrow" title="Grow the kept area a little">Grow</button>
@@ -501,7 +510,7 @@ function deepMerge(base,over){
   return (over!==undefined&&typeof over===typeof base)?over:base;
 }
 let saveT=0;
-function save(){clearTimeout(saveT);saveT=setTimeout(()=>{try{localStorage.setItem(STORE,JSON.stringify({layout:L,effect:job.effect,params:job.params,prep:job.prep}))}catch(_){}},300)}
+function save(){clearTimeout(saveT);saveT=setTimeout(()=>{try{localStorage.setItem(STORE,JSON.stringify({layout:L,effect:job.effect,params:job.params,prep:job.prep,aiModel:job.aiModel}))}catch(_){}},300)}
 function restore(){try{return JSON.parse(localStorage.getItem(STORE)||'null')}catch(_){return null}}
 
 /* ---------- server calls ---------- */
@@ -942,7 +951,8 @@ $('send-start').onclick=()=>sendJob(true);
 const ED={tool:'box',img:null,mask:null,busy:false,dw:0,dh:0,drag:null,hover:null};
 function selText(d){
   if(!d?.has_mask)return 'Nothing removed yet.';
-  return `Background removed: ${Math.round(d.kept*100)}% of the picture kept${d.method?` (found a ${d.method==='photo'?'subject in a photo':'plain background'})`:''}.`;
+  const how=!d.method?'':d.method.startsWith('ai:')?` (AI: ${d.method.slice(3).toLowerCase()})`:` (found a ${d.method==='photo'?'subject in a photo':'plain background'})`;
+  return `Background removed: ${Math.round(d.kept*100)}% of the picture kept${how}.`;
 }
 function applySel(d){
   if(!job.image||!d)return;
@@ -958,11 +968,14 @@ function applySel(d){
 async function maskOp(body,where='edStatus'){
   if(!job.image||job.image.kind!=='raster'||ED.busy)return;
   ED.busy=true;const st=$(where);st.classList?.remove('err');
-  st.textContent=body.op==='auto'?'Looking for the subject…':body.op==='select'||body.smart?'Finding the subject\'s edges…':'Updating…';
+  const aiM=AI.models.find(x=>x.name===body.model);
+  st.textContent=body.op==='ai'?(aiM&&!aiM.downloaded?`Downloading the ${aiM.label.toLowerCase()} model (${aiM.size_mb} MB) the first time, then running it…`:'Running the AI model…'):
+    body.op==='auto'?'Looking for the subject…':body.op==='select'||body.smart?'Finding the subject\'s edges…':'Updating…';
   try{
     const r=await post(`/api/image/${job.image.id}/mask`,body),d=await r.json();
     if(!r.ok){st.textContent=typeof d.detail==='string'?d.detail:'That didn\'t work.';st.classList?.add('err');return}
     applySel(d);if(where!=='edStatus')$('selInfo').textContent=selText(d);
+    if(body.op==='ai')loadAI();
   }catch(_){st.textContent='Could not reach the BambuPlot server.';st.classList?.add('err')}
   finally{ED.busy=false;$('edDraw').getContext('2d').clearRect(0,0,$('edDraw').width,$('edDraw').height)}
 }
@@ -999,6 +1012,20 @@ document.querySelectorAll('#edTools button').forEach(b=>b.onclick=()=>setTool(b.
 $('edSize').oninput=e=>{$('edSize.out').textContent=e.target.value+' px'};
 $('selEdit').onclick=openEditor;
 $('selAuto').onclick=()=>maskOp({op:'auto'},'selInfo');
+const AI={available:false,models:[]};
+async function loadAI(){
+  try{const d=await (await fetch('/api/ai')).json();AI.available=d.available;AI.models=d.models||[]}catch(_){AI.available=false}
+  $('aiBox').hidden=!AI.available;$('aiInstall').hidden=AI.available;$('edAI').hidden=!AI.available;
+  if(!AI.available)return;
+  const sel=$('aiModel');
+  if(!AI.models.some(m=>m.name===job.aiModel))job.aiModel=AI.models[0]?.name;
+  sel.innerHTML=AI.models.map(m=>`<option value="${m.name}">${esc(m.label)} · ${m.downloaded?'ready':m.size_mb+' MB download'}</option>`).join('');
+  sel.value=job.aiModel;
+  $('edAI').title=`Uses the ${AI.models.find(m=>m.name===job.aiModel)?.label.toLowerCase()} model, chosen in the Source panel`;
+}
+$('aiModel').onchange=e=>{job.aiModel=e.target.value;save();loadAI()};
+$('selAI').onclick=()=>maskOp({op:'ai',model:job.aiModel},'selInfo');
+$('edAI').onclick=()=>maskOp({op:'ai',model:job.aiModel});
 $('edAuto').onclick=()=>maskOp({op:'auto'});
 $('edInvert').onclick=()=>maskOp({op:'invert'});
 $('edGrow').onclick=()=>maskOp({op:'grow',amount:3});
@@ -1053,7 +1080,8 @@ edDraw.addEventListener('pointerup',()=>{
     L=deepMerge(defs.layout,saved?.layout);job.prep=deepMerge(defs.prep,saved?.prep);
     job.effect=effects.some(e=>e.name===saved?.effect)?saved.effect:'waves';
     job.params=(saved?.params&&typeof saved.params==='object')?saved.params:{};
-    buildEffects();render();refreshChecks();schedulePlan(0);loadPrinter();
+    job.aiModel=typeof saved?.aiModel==='string'?saved.aiModel:null;
+    buildEffects();render();refreshChecks();schedulePlan(0);loadPrinter();loadAI();
     const v=await fetch('/api/version').then(r=>r.ok?r.json():null).catch(()=>null);
     if(!v||!['rotation','printer'].every(f=>v.features?.includes(f)))
       setStatus('The BambuPlot server is out of date. Stop it (Ctrl+C) and run `uv run bambuplot serve` again.',true);
