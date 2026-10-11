@@ -14,6 +14,17 @@ Open http://127.0.0.1:8000. Two tabs:
 - **Bed setup:** place the paper and clips on the 180 × 180 plate, enter your pen offset, and drag out the drawing area. Safety checks update live.
 - **Artwork:** load an image, adjust tone, pick an effect (wave lines, halftone, spiral, TSP stipple) and tune it. The preview shows the actual paths; the progress slider replays the drawing order.
 
+### Projects
+
+BambuPlot opens on a **Projects** dashboard, laid out like the Pages and Keynote document browser:
+- **Cards:** each project shows a thumbnail of its plot, when it was last edited, its effect and its picture.
+- **Find and sort:** search by name or picture, and sort by Recent or Name.
+- **Actions:** **New Project**, or each card's ⋯ menu for Open, Rename, Duplicate and Delete. Delete asks for confirmation. On a selected card, Enter opens it and Delete removes it.
+
+**What a project keeps:** the bed layout, effect and effect settings, tone, crop and turn settings, the original picture or SVG, and the subject selection. Projects **save themselves** a moment after each change, like a Mac document. The toolbar shows *Edited* and then *Saved*, and ⌘S saves right away. Click the name in the toolbar to rename the project, and **‹ Projects** goes back to the dashboard.
+
+**Where they live:** `~/.config/bambuplot/projects/<id>/`, with `project.json`, `source.*`, `mask.png` and `thumb.png`. The first time you open this version, the setup you had before becomes a project called *My First Plot*.
+
 ### The window
 
 BambuPlot is laid out like a Mac app, and the page itself never scrolls.
@@ -29,7 +40,8 @@ You can also drop a file anywhere on the window to open it.
 |---|---|
 | ⌘O | Open a picture or SVG |
 | ⌘E | Edit picture (crop, select, erase) |
-| ⌘S | Download G-code |
+| ⌘S | Save the project now (it also saves itself) |
+| ⇧⌘E | Export G-code |
 | ⌘↩ | Send to printer |
 | ⌘1–⌘4 | Picture / Effect / Bed / Printer tab |
 
@@ -238,6 +250,7 @@ Every file passes through `safety.validate` before it is written. It is an allow
 | `calibrate.py` | Smoke test and press ladder |
 | `package.py` | Wraps G-code in a `.gcode.3mf` from a Bambu Studio template |
 | `printer.py` | LAN Only upload (FTPS), start/status (MQTT), Bambu Connect hand-off |
+| `projects.py` | Projects on disk: state, source file, selection, thumbnail |
 | `server.py` / `web/` | FastAPI backend and the browser UI |
 
 To add an effect, write a function in `effects.py` decorated with `@register(...)`. It must return polylines in area coordinates. The UI picks up its parameters automatically.

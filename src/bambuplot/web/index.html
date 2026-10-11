@@ -10,12 +10,56 @@
 <input type="file" id="file" accept="image/png,image/jpeg,image/webp,image/svg+xml,.svg" hidden>
 <input type="file" id="importLayout" accept="application/json,.json" hidden>
 
-<div class="app">
-  <!-- ============================== toolbar ============================== -->
+<!-- ============================== dashboard ============================== -->
+<div class="dash" id="dashboard" hidden>
   <header class="toolbar">
     <div class="tb-title">
       <svg class="appicon" viewBox="0 0 32 32" aria-hidden="true"><rect x="2" y="2" width="28" height="28" rx="7"/><path d="M9 22c3-6 6 2 9-4s4-6 5-7" /><circle cx="23" cy="11" r="2.2"/></svg>
-      <div><h1>BambuPlot</h1><span id="docName">Sample picture</span></div>
+      <div><h1 class="apptitle">BambuPlot</h1><span class="sub">Projects</span></div>
+    </div>
+    <div class="tb-status"></div>
+    <div class="tb-actions">
+      <label class="search"><svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="8.5" cy="8.5" r="5"/><path d="m12.5 12.5 4 4"/></svg><input type="search" id="projSearch" placeholder="Search" aria-label="Search projects"></label>
+      <div class="segmented mini" id="projSort" role="group" aria-label="Sort">
+        <button type="button" data-sort="recent" aria-pressed="true">Recent</button>
+        <button type="button" data-sort="name" aria-pressed="false">Name</button>
+      </div>
+      <button class="tbtn prominent" type="button" id="projNew" title="New project">
+        <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 4v12M4 10h12"/></svg><span>New Project</span>
+      </button>
+    </div>
+  </header>
+  <main class="dash-body" aria-label="Projects">
+    <div class="dash-head"><h2>Projects</h2><span id="projCount"></span></div>
+    <div class="projgrid" id="projGrid" role="list"></div>
+    <div class="dash-empty" id="projEmpty" hidden>
+      <svg viewBox="0 0 64 64" aria-hidden="true"><rect x="10" y="12" width="44" height="40" rx="6"/><path d="M18 40c5-9 9 3 14-6s7-9 9-11"/></svg>
+      <h3>No projects yet</h3>
+      <p>A project keeps a picture, its effect and your bed setup together, and saves itself as you work.</p>
+      <button class="btn accent" type="button" id="projNewEmpty">New Project</button>
+    </div>
+  </main>
+</div>
+
+<div popover id="cardMenu" class="menu" role="menu">
+  <button type="button" data-act="open" role="menuitem">Open</button>
+  <button type="button" data-act="rename" role="menuitem">Rename</button>
+  <button type="button" data-act="duplicate" role="menuitem">Duplicate</button>
+  <hr>
+  <button type="button" data-act="delete" role="menuitem" class="danger">Delete…</button>
+</div>
+
+<div class="app" hidden>
+  <!-- ============================== toolbar ============================== -->
+  <header class="toolbar">
+    <div class="tb-title">
+      <button class="tbtn back" type="button" id="toProjects" title="All projects">
+        <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M12.5 4 6.5 10l6 6"/></svg><span>Projects</span>
+      </button>
+      <div class="docid">
+        <input id="projName" class="titlefield" value="Untitled" aria-label="Project name" spellcheck="false" autocomplete="off">
+        <span id="docName">Sample picture</span>
+      </div>
     </div>
     <div class="tb-status"><span id="status" role="status">Loading…</span></div>
     <div class="tb-actions">
@@ -25,7 +69,7 @@
       <button class="tbtn" type="button" id="tbEdit" title="Crop, select the subject or remove the background (⌘E)" disabled>
         <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M6 2v12h12M2 6h12v12"/></svg><span>Edit Picture</span>
       </button>
-      <button class="tbtn" type="button" id="dlMenuBtn" popovertarget="dlMenu" title="Download files (⌘S for G-code)">
+      <button class="tbtn" type="button" id="dlMenuBtn" popovertarget="dlMenu" title="Download files (⇧⌘E for G-code)">
         <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 3v9m-4-4 4 4 4-4M4 15.5h12"/></svg><span>Download</span>
       </button>
       <button class="tbtn prominent" type="button" id="sendOpen" title="Send to the printer (⌘↩)">
@@ -263,7 +307,7 @@
 
 <!-- ============================== popovers ============================== -->
 <div popover id="dlMenu" class="menu" role="menu">
-  <button type="button" id="dlG" role="menuitem">G-code <kbd>⌘S</kbd></button>
+  <button type="button" id="dlG" role="menuitem">G-code <kbd>⇧⌘E</kbd></button>
   <button type="button" id="dl3mf" role="menuitem" title="For Bambu Connect or the SD card. Needs a project template.">Bambu project (.gcode.3mf)</button>
   <hr>
   <button type="button" id="dlSmoke" role="menuitem">Smoke test</button>

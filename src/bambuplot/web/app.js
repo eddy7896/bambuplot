@@ -32,9 +32,32 @@ function deepMerge(base,over){
   if(base&&typeof base==='object'){const o={};for(const k in base)o[k]=deepMerge(base[k],over?.[k]);return o}
   return (over!==undefined&&typeof over===typeof base)?over:base;
 }
-let saveT=0;
-function save(){clearTimeout(saveT);saveT=setTimeout(()=>{try{localStorage.setItem(STORE,JSON.stringify({layout:L,effect:job.effect,params:job.params,prep:job.prep,aiModel:job.aiModel}))}catch(_){}},300)}
+/* Projects save themselves: every change schedules a save a moment later, like a Mac document. */
+let saveT=0,saving=false,saveAgain=false,dirty=false,currentProject=null;
 function restore(){try{return JSON.parse(localStorage.getItem(STORE)||'null')}catch(_){return null}}
+function setDocState(text,err){const d=$('docName');d.textContent=text;d.classList.toggle('err',!!err)}
+function docInfo(){return job.image?job.image.name:'Sample picture'}
+function save(){
+  if(!currentProject)return;
+  dirty=true;setDocState(`Edited · ${docInfo()}`);
+  clearTimeout(saveT);saveT=setTimeout(saveNow,900);
+}
+const projectBody=()=>({name:$('projName').value,state:{layout:L,effect:job.effect,params:job.params,prep:job.prep,aiModel:job.aiModel},image_id:job.image?.id||null});
+async function saveNow(){
+  clearTimeout(saveT);
+  if(!currentProject||!dirty)return;
+  if(saving){saveAgain=true;return}
+  saving=true;dirty=false;const pid=currentProject;setDocState(`Saving… · ${docInfo()}`);
+  try{
+    const r=await fetch(`/api/projects/${pid}`,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(projectBody())});
+    if(!r.ok)throw new Error();
+    if(pid===currentProject)setDocState(dirty?`Edited · ${docInfo()}`:`Saved · ${docInfo()}`);
+  }catch(_){dirty=true;if(pid===currentProject)setDocState('Couldn’t save. Retrying when you make the next change.',true)}
+  finally{saving=false;if(saveAgain){saveAgain=false;saveNow()}}
+}
+window.addEventListener('beforeunload',()=>{
+  if(currentProject&&dirty)fetch(`/api/projects/${currentProject}`,{method:'PUT',keepalive:true,headers:{'Content-Type':'application/json'},body:JSON.stringify(projectBody())});
+});
 
 /* ---------- server calls ---------- */
 const post=(url,body)=>fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
@@ -317,7 +340,7 @@ $('effect').onchange=e=>{job.effect=e.target.value;buildParams();save();schedule
 function renderThumb(){
   const t=$('thumb'),n=$('srcNotes'),im=job.image;
   n.hidden=!(im?.warnings?.length);n.innerHTML=(im?.warnings||[]).map(w=>`<li>${esc(w)}</li>`).join('');
-  $('docName').textContent=im?im.name:'Sample picture';$('tbEdit').disabled=im?.kind!=='raster';
+  $('tbEdit').disabled=im?.kind!=='raster';if(currentProject)setDocState(`${dirty?'Edited':'Saved'} · ${docInfo()}`);
   if(!im){t.innerHTML='<label class="drop" for="file">Drop a PNG, JPG or SVG here, or click to choose.<br>The preview uses a sample sphere until then.</label>';$('srcimg').setAttribute('href','');}
   else{
     const info=im.kind==='svg'
@@ -518,7 +541,7 @@ async function maskOp(body,where='edStatus'){
   try{
     const r=await post(`/api/image/${job.image.id}/mask`,body),d=await r.json();
     if(!r.ok){st.textContent=typeof d.detail==='string'?d.detail:'That didn\'t work.';st.classList?.add('err');return}
-    applySel(d);if(where!=='edStatus')$('selInfo').textContent=selText(d);
+    applySel(d);save();if(where!=='edStatus')$('selInfo').textContent=selText(d);
     if(body.op==='ai')loadAI();
   }catch(_){st.textContent='Could not reach the BambuPlot server.';st.classList?.add('err')}
   finally{ED.busy=false;drawEdStroke()}
@@ -724,28 +747,161 @@ for(const ev of ['dragenter','dragover'])document.addEventListener(ev,e=>{if([..
 for(const ev of ['dragleave','drop'])document.addEventListener(ev,()=>canvasEl.classList.remove('dropping'));
 document.addEventListener('drop',e=>{const f=e.dataTransfer?.files?.[0];if(f){e.preventDefault();openFile(f)}});
 document.addEventListener('keydown',e=>{
-  if(!(e.metaKey||e.ctrlKey)||$('editor').open||$('sendSheet').open)return;
+  if(!(e.metaKey||e.ctrlKey)||$('editor').open||$('sendSheet').open||!$('dashboard').hidden)return;
   const k=e.key.toLowerCase();
   if(k==='o'){e.preventDefault();$('file').click()}
-  else if(k==='s'){e.preventDefault();if(!$('dlG').disabled)$('dlG').click()}
-  else if(k==='e'){e.preventDefault();if(!$('tbEdit').disabled)openEditor('crop')}
+  else if(k==='s'){e.preventDefault();saveNow()}
+  else if(k==='e'&&e.shiftKey){e.preventDefault();if(!$('dlG').disabled)$('dlG').click()}
+  else if(k==='e'&&!e.shiftKey){e.preventDefault();if(!$('tbEdit').disabled)openEditor('crop')}
   else if(k==='enter'){e.preventDefault();$('sendOpen').click()}
   else if(['1','2','3','4'].includes(k)){e.preventDefault();selectTab(['tab-picture','tab-effect','tab-setup','tab-printer'][+k-1])}
 });
 
 /* ---------- boot ---------- */
+/* ---------- projects & dashboard ---------- */
+const DASH={list:[],sort:'recent',query:'',menuFor:null};
+function relTime(t){
+  const d=new Date(t*1000),now=new Date(),day=86400000;
+  const time=d.toLocaleTimeString([], {hour:'numeric',minute:'2-digit'});
+  const start=new Date(now.getFullYear(),now.getMonth(),now.getDate()).getTime();
+  if(d.getTime()>=start)return `Today, ${time}`;
+  if(d.getTime()>=start-day)return `Yesterday, ${time}`;
+  return d.toLocaleDateString([], {day:'numeric',month:'short',year:d.getFullYear()===now.getFullYear()?undefined:'numeric'});
+}
+const effectLabel=n=>effects.find(e=>e.name===n)?.label||'Wave lines';
+async function loadProjects(){
+  try{DASH.list=await (await fetch('/api/projects')).json()}catch(_){DASH.list=[]}
+  renderDashboard();
+}
+function renderDashboard(){
+  const q=DASH.query.trim().toLowerCase();
+  let items=DASH.list.filter(p=>!q||p.name.toLowerCase().includes(q)||(p.source?.name||'').toLowerCase().includes(q));
+  items=[...items].sort(DASH.sort==='name'?(a,b)=>a.name.localeCompare(b.name,undefined,{numeric:true}):(a,b)=>b.updated-a.updated);
+  $('projCount').textContent=DASH.list.length?`${DASH.list.length} project${DASH.list.length===1?'':'s'}`:'';
+  $('projEmpty').hidden=DASH.list.length>0;$('projGrid').hidden=DASH.list.length===0;
+  const card=p=>`<div class="card" role="listitem" tabindex="0" data-id="${p.id}" aria-label="${esc(p.name)}">
+      <div class="art">${p.has_thumb?`<img src="/api/projects/${p.id}/thumb.png?v=${p.updated}" alt="">`:'<span class="none">Not plotted yet</span>'}
+        <button class="more" type="button" aria-label="Actions for ${esc(p.name)}" aria-haspopup="menu" aria-expanded="false">⋯</button></div>
+      <div class="name">${esc(p.name)}</div>
+      <div class="meta">${relTime(p.updated)} · ${esc(effectLabel(p.effect))}${p.source?.name?` · ${esc(p.source.name)}`:''}</div></div>`;
+  $('projGrid').innerHTML=(q?'':`<div class="card new" role="listitem" tabindex="0" data-new="1"><div class="art"><svg viewBox="0 0 28 28"><path d="M14 6v16M6 14h16"/></svg>New Project</div><div class="name">&nbsp;</div></div>`)+
+    items.map(card).join('')+(q&&!items.length?`<p class="foot">No projects match “${esc(DASH.query)}”.</p>`:'');
+}
+async function newProject(state){
+  const r=await post('/api/projects',{name:'Untitled',state:state||null});
+  const p=await r.json();location.hash=`#/p/${p.id}`;
+}
+function showDashboard(){
+  saveNow();currentProject=null;
+  document.querySelector('.app').hidden=true;$('dashboard').hidden=false;document.title='BambuPlot';
+  loadProjects();
+}
+async function openProject(pid){
+  if(pid===currentProject){document.querySelector('.app').hidden=false;$('dashboard').hidden=true;return}
+  await saveNow();
+  let d;
+  try{const r=await fetch(`/api/projects/${pid}`);if(!r.ok)throw new Error();d=await r.json()}
+  catch(_){location.hash='#/';return}
+  currentProject=null; // don't autosave while loading
+  const st=d.state||{};
+  L=deepMerge(DEF.layout,st.layout);job.prep=deepMerge(DEF.prep,st.prep);
+  job.effect=effects.some(e=>e.name===st.effect)?st.effect:'waves';
+  job.params=(st.params&&typeof st.params==='object')?st.params:{};
+  job.aiModel=typeof st.aiModel==='string'?st.aiModel:null;
+  if(job.image?.url)URL.revokeObjectURL(job.image.url);
+  job.image=null;plan=null;$('ink').setAttribute('d','');$('travel').setAttribute('d','');
+  if(d.image){
+    try{
+      const blob=await (await fetch(`/api/projects/${pid}/source`)).blob();
+      const im=d.image;
+      job.image={id:im.id,kind:im.kind,w:im.width,h:im.height,name:im.name||'picture',warnings:im.warnings||[],strokes:im.strokes,fills:im.fills,sel:im.selection||null,url:URL.createObjectURL(blob)};
+    }catch(_){job.image=null}
+  }
+  $('projName').value=d.name;document.title=`${d.name} · BambuPlot`;
+  document.querySelector('.app').hidden=false;$('dashboard').hidden=true;
+  buildEffects();render();renderThumb();refreshChecks();schedulePlan(0);loadAI();
+  if(job.image?.sel?.has_mask)applySel(job.image.sel);
+  selectTab(job.image?'tab-effect':'tab-picture');
+  currentProject=pid;dirty=false;setDocState(`Saved · ${docInfo()}`);
+  if(d.warning)showProblems(d.warning);
+}
+function route(){
+  const m=location.hash.match(/^#\/p\/([a-f0-9]{12})$/);
+  if(m)openProject(m[1]);else showDashboard();
+}
+window.addEventListener('hashchange',route);
+$('toProjects').onclick=()=>{location.hash='#/'};
+$('projNew').onclick=$('projNewEmpty').onclick=()=>newProject();
+$('projSearch').oninput=e=>{DASH.query=e.target.value;renderDashboard()};
+document.querySelectorAll('#projSort button').forEach(b=>b.onclick=()=>{
+  DASH.sort=b.dataset.sort;document.querySelectorAll('#projSort button').forEach(x=>x.setAttribute('aria-pressed',x===b));renderDashboard();
+});
+$('projName').addEventListener('input',()=>{document.title=`${$('projName').value||'Untitled'} · BambuPlot`;save()});
+$('projName').addEventListener('keydown',e=>{if(e.key==='Enter'||e.key==='Escape'){e.target.blur();saveNow()}});
+$('projName').addEventListener('blur',()=>{if(!$('projName').value.trim())$('projName').value='Untitled';saveNow()});
+
+/* cards: click to open, ⋯ for actions */
+$('projGrid').addEventListener('click',e=>{
+  const c=e.target.closest('.card');if(!c||e.target.closest('.confirm,.rename'))return;
+  if(c.dataset.new){newProject();return}
+  const more=e.target.closest('.more');
+  if(more){
+    DASH.menuFor=c.dataset.id;const m=$('cardMenu'),r=more.getBoundingClientRect();
+    m.style.top=`${r.bottom+4}px`;m.style.left=`${Math.min(r.left,innerWidth-240)}px`;m.style.right='auto';
+    more.setAttribute('aria-expanded','true');m.showPopover();return;
+  }
+  location.hash=`#/p/${c.dataset.id}`;
+});
+$('projGrid').addEventListener('keydown',e=>{
+  const c=e.target.closest('.card');if(!c||e.target!==c)return;
+  if(e.key==='Enter'){c.dataset.new?newProject():location.hash=`#/p/${c.dataset.id}`}
+  else if((e.key==='Backspace'||e.key==='Delete')&&!c.dataset.new){e.preventDefault();askDelete(c)}
+});
+$('cardMenu').addEventListener('toggle',e=>{if(e.newState==='closed')document.querySelectorAll('.more[aria-expanded="true"]').forEach(b=>b.setAttribute('aria-expanded','false'))});
+$('cardMenu').addEventListener('click',async e=>{
+  const act=e.target.closest('button')?.dataset.act,pid=DASH.menuFor;if(!act||!pid)return;
+  $('cardMenu').hidePopover();
+  const c=document.querySelector(`.card[data-id="${pid}"]`);
+  if(act==='open')location.hash=`#/p/${pid}`;
+  else if(act==='duplicate'){await post(`/api/projects/${pid}/duplicate`,{});loadProjects()}
+  else if(act==='rename'&&c){
+    const nameEl=c.querySelector('.name'),old=DASH.list.find(p=>p.id===pid)?.name||'';
+    nameEl.innerHTML=`<input class="rename" value="${esc(old)}" aria-label="Project name">`;
+    const inp=nameEl.querySelector('input');inp.focus();inp.select();
+    const done=async keep=>{inp.onblur=null;if(keep&&inp.value.trim()&&inp.value.trim()!==old)await fetch(`/api/projects/${pid}`,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:inp.value})});loadProjects()};
+    inp.onkeydown=ev=>{if(ev.key==='Enter')done(true);else if(ev.key==='Escape')done(false)};
+    inp.onblur=()=>done(true);
+  }
+  else if(act==='delete'&&c)askDelete(c);
+});
+function askDelete(c){
+  const pid=c.dataset.id,name=DASH.list.find(p=>p.id===pid)?.name||'this project',art=c.querySelector('.art');
+  art.insertAdjacentHTML('beforeend',`<div class="confirm" role="alertdialog" aria-label="Delete ${esc(name)}?"><b>Delete “${esc(name)}”?</b><span>Its picture and settings will be removed. This can’t be undone.</span><div><button class="btn small" type="button" data-no>Cancel</button><button class="btn small danger" type="button" data-yes>Delete</button></div></div>`);
+  const box=art.querySelector('.confirm');box.querySelector('[data-no]').focus();
+  box.onclick=async ev=>{
+    ev.stopPropagation();
+    if(ev.target.closest('[data-yes]')){await fetch(`/api/projects/${pid}`,{method:'DELETE'});loadProjects()}
+    else if(ev.target.closest('[data-no]'))box.remove();
+  };
+}
+
+/* ---------- boot ---------- */
 (async function boot(){
   try{
     const [defs,effs]=await Promise.all([fetch('/api/defaults').then(r=>r.json()),fetch('/api/effects').then(r=>r.json())]);
-    DEF=defs;effects=effs;
-    const saved=restore();
-    L=deepMerge(defs.layout,saved?.layout);job.prep=deepMerge(defs.prep,saved?.prep);
-    job.effect=effects.some(e=>e.name===saved?.effect)?saved.effect:'waves';
-    job.params=(saved?.params&&typeof saved.params==='object')?saved.params:{};
-    job.aiModel=typeof saved?.aiModel==='string'?saved.aiModel:null;
-    buildEffects();render();renderThumb();refreshChecks();schedulePlan(0);loadPrinter();loadAI();
+    DEF=defs;effects=effs;L=deepMerge(defs.layout,null);job.prep=deepMerge(defs.prep,null);
+    loadPrinter();
+    // First run with projects: keep the setup from before as a first project.
+    const list=await (await fetch('/api/projects')).json();
+    const old=restore();
+    if(!list.length&&old&&!localStorage.getItem(STORE+'.migrated')){
+      const r=await post('/api/projects',{name:'My First Plot',state:{layout:old.layout,effect:old.effect,params:old.params,prep:old.prep,aiModel:old.aiModel}});
+      try{localStorage.setItem(STORE+'.migrated','1')}catch(_){}
+      if(r.ok&&!location.hash){const p=await r.json();location.hash=`#/p/${p.id}`;return}
+    }
+    route();
     const v=await fetch('/api/version').then(r=>r.ok?r.json():null).catch(()=>null);
-    if(!v||!['rotation','printer'].every(f=>v.features?.includes(f)))
+    if(!v||!['rotation','printer','projects'].every(f=>v.features?.includes(f)))
       setStatus('The BambuPlot server is out of date. Stop it (Ctrl+C) and run `uv run bambuplot serve` again.',true);
   }catch(e){setStatus('Could not reach the BambuPlot server. Start it with `bambuplot serve`.',true)}
 })();

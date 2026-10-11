@@ -16,6 +16,7 @@ from pydantic import BaseModel, Field
 
 from . import effects
 from . import __version__, printer
+from . import projects as proj
 from .calibrate import DEFAULT_PRESSES, press_ladder, smoke_test
 from .fit import center_area, fit_area
 from .gcode import UnsafeLayout
@@ -35,13 +36,22 @@ MAX_UPLOAD = 25 * 1024 * 1024
 
 app = FastAPI(title="BambuPlot")
 app.mount("/static", StaticFiles(directory=WEB), name="static")
-_images: OrderedDict[str, object] = OrderedDict()  # id -> RasterSource or SvgArt
+_images: OrderedDict[str, object] = OrderedDict()  # id -> RasterSource or SvgSource
 
 
 @dataclass
 class RasterSource:
     gray: np.ndarray  # full-resolution grayscale, 0–1
     state: masking.MaskState  # working-size color copy plus the subject mask
+    data: bytes = b""  # the original file, so it can be saved into a project
+    name: str = ""
+
+
+@dataclass
+class SvgSource:
+    art: SvgArt
+    data: bytes = b""
+    name: str = ""
 _plans: OrderedDict[str, Plan] = OrderedDict()
 
 
@@ -70,8 +80,8 @@ def _plan(req: PlanRequest) -> Plan:
         if req.image_id not in _images:
             raise HTTPException(404, "That image is no longer loaded. Upload it again.")
         src = _images[req.image_id]
-        if isinstance(src, SvgArt):
-            svg = src
+        if isinstance(src, SvgSource):
+            svg = src.art
         else:
             gray = src.gray
             if src.state.mask is not None and req.prep.use_mask:
@@ -116,7 +126,7 @@ def index():
 
 @app.get("/api/version")
 def version():
-    return {"version": __version__, "features": ["rotation", "printer", "vector", "selection", "ai"]}
+    return {"version": __version__, "features": ["rotation", "printer", "vector", "selection", "ai", "projects"]}
 
 
 @app.get("/api/effects")
@@ -151,8 +161,13 @@ async def upload_image(file: UploadFile = File(...)):
     data = await file.read()
     if len(data) > MAX_UPLOAD:
         raise HTTPException(413, "Images must be under 25 MB.")
+    return _ingest(data, file.filename or "")
+
+
+def _ingest(data: bytes, filename: str, saved_mask: np.ndarray | None = None) -> dict:
+    """Load a picture or SVG into memory and describe it for the page."""
     head = data[:4096].lstrip().lower()
-    if (file.filename or "").lower().endswith(".svg") or head.startswith(b"<svg") or (
+    if filename.lower().endswith(".svg") or head.startswith(b"<svg") or (
         head.startswith(b"<?xml") and b"<svg" in head
     ):
         try:
@@ -161,7 +176,7 @@ async def upload_image(file: UploadFile = File(...)):
         except SvgError as err:
             raise HTTPException(422, str(err))
         image_id = "svg-" + hashlib.sha1(data).hexdigest()[:16]
-        _remember(_images, image_id, art, MAX_IMAGES)
+        _remember(_images, image_id, SvgSource(art=art, data=data, name=filename), MAX_IMAGES)
         return {"id": image_id, "kind": "svg", "width": round(w, 1), "height": round(h, 1),
                 "warnings": art.warnings, "strokes": len(art.strokes), "fills": len(art.fills)}
     try:
@@ -171,12 +186,15 @@ async def upload_image(file: UploadFile = File(...)):
     except Exception:
         raise HTTPException(422, "That file isn't an image BambuPlot can read. Try a JPG, PNG or SVG.")
     notes = []
-    if alpha is not None:  # an already cut-out PNG: start with its transparency as the selection
+    if saved_mask is not None:  # reopening a project: restore its selection
+        masking.set_mask(state, saved_mask)
+        state.history.clear()
+    elif alpha is not None:  # an already cut-out PNG: start with its transparency as the selection
         masking.set_mask(state, alpha)
         state.history.clear()
         notes.append("Transparent areas are treated as removed background. Edit or reset the selection to change that.")
     image_id = hashlib.sha1(data).hexdigest()[:16]
-    _remember(_images, image_id, RasterSource(gray=gray, state=state), MAX_IMAGES)
+    _remember(_images, image_id, RasterSource(gray=gray, state=state, data=data, name=filename), MAX_IMAGES)
     h, w = gray.shape
     return {"id": image_id, "kind": "raster", "width": w, "height": h, "warnings": notes,
             "selection": masking.describe(state)}
@@ -384,3 +402,137 @@ def bambu_connect(req: SendRequest):
         raise HTTPException(422, str(err))
     except TemplateError as err:
         raise HTTPException(422, str(err))
+
+
+# ------------------------------------------------------------------ projects
+
+
+class ProjectState(BaseModel):
+    layout: Layout = Field(default_factory=Layout)
+    effect: str = "waves"
+    params: dict = Field(default_factory=dict)  # per effect: {effect: {param: value}}
+    prep: Prep = Field(default_factory=Prep)
+    aiModel: str | None = None
+
+
+class ProjectSave(BaseModel):
+    name: str | None = None
+    state: ProjectState = Field(default_factory=ProjectState)
+    image_id: str | None = None  # the picture currently loaded on the page, or None for the sample
+
+
+class ProjectNew(BaseModel):
+    name: str | None = None
+    state: ProjectState | None = None
+
+
+def _project_error(err: proj.ProjectError):
+    raise HTTPException(404, str(err))
+
+
+@app.get("/api/projects")
+def list_projects():
+    return proj.list_projects()
+
+
+@app.post("/api/projects")
+def new_project(body: ProjectNew):
+    return proj.create(body.name, body.state.model_dump() if body.state else None)
+
+
+@app.get("/api/projects/{pid}")
+def open_project(pid: str):
+    try:
+        p = proj.load(pid)
+        src = proj.source(pid)
+        image = None
+        if src is not None:
+            data, info = src
+            try:
+                image = _ingest(data, info.get("name", ""), saved_mask=proj.mask(pid))
+            except HTTPException as err:  # a source that no longer loads shouldn't lock the project
+                p["warning"] = f"The saved picture couldn't be opened ({err.detail}). Choose it again."
+            else:
+                image["name"] = info.get("name", "")
+        return {**p, "image": image}
+    except proj.ProjectError as err:
+        _project_error(err)
+
+
+@app.put("/api/projects/{pid}")
+def save_project(pid: str, body: ProjectSave):
+    try:
+        if body.image_id is None:
+            proj.set_source(pid, None)
+        elif body.image_id in _images:
+            src = _images[body.image_id]
+            kind = "svg" if isinstance(src, SvgSource) else "raster"
+            proj.set_source(pid, src.data, src.name, kind)
+            if isinstance(src, RasterSource):
+                proj.set_mask(pid, src.state.mask)
+        state = body.state.model_dump()
+        summary = proj.save_state(pid, state, body.name)
+        try:  # the dashboard thumbnail is a small drawing of the current plot
+            req = PlanRequest(layout=body.state.layout, effect=body.state.effect,
+                              params=body.state.params.get(body.state.effect, {}), prep=body.state.prep,
+                              image_id=body.image_id if body.image_id in _images else None)
+            plan = _plan(req)
+            proj.render_thumb(pid, plan.lines, req.layout.area.w, req.layout.area.h, req.layout.pen.width_mm)
+            summary["has_thumb"] = True
+        except HTTPException:
+            pass
+        return summary
+    except proj.ProjectError as err:
+        _project_error(err)
+
+
+@app.patch("/api/projects/{pid}")
+def rename_project(pid: str, body: ProjectNew):
+    try:
+        return proj.rename(pid, body.name or "")
+    except proj.ProjectError as err:
+        _project_error(err)
+
+
+@app.post("/api/projects/{pid}/duplicate")
+def duplicate_project(pid: str):
+    try:
+        return proj.duplicate(pid)
+    except proj.ProjectError as err:
+        _project_error(err)
+
+
+@app.delete("/api/projects/{pid}")
+def delete_project(pid: str):
+    try:
+        proj.delete(pid)
+        return {"ok": True}
+    except proj.ProjectError as err:
+        _project_error(err)
+
+
+@app.get("/api/projects/{pid}/thumb.png")
+def project_thumb(pid: str):
+    try:
+        path = proj.thumb_path(pid)
+    except proj.ProjectError as err:
+        _project_error(err)
+    if path is None:
+        raise HTTPException(404, "No thumbnail yet.")
+    return FileResponse(path, media_type="image/png", headers={"Cache-Control": "no-cache"})
+
+
+@app.get("/api/projects/{pid}/source")
+def project_source(pid: str):
+    try:
+        src = proj.source(pid)
+    except proj.ProjectError as err:
+        _project_error(err)
+    if src is None:
+        raise HTTPException(404, "This project has no picture.")
+    data, info = src
+    kind = info.get("kind")
+    ext = info.get("name", "").rsplit(".", 1)[-1].lower()
+    mime = "image/svg+xml" if kind == "svg" else {"jpg": "image/jpeg", "jpeg": "image/jpeg",
+                                                  "webp": "image/webp"}.get(ext, "image/png")
+    return Response(data, media_type=mime)
