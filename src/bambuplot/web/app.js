@@ -150,6 +150,7 @@ function renderUnder(){
   h+=`<g mask="url(#offbed)"><g ${rotAttr(p)}><rect class="overhang" ${rA(pr)}></rect></g></g>`;
   h+=`<g ${rotAttr(p)}><rect class="pmargin" ${rA(R(p.x+m,p.y+m,p.w-2*m,p.h-2*m))}></rect>`;
   h+=`<text class="paperlbl" x="${X(p.x+2)}" y="${Y(y2(pr)-4.5)}">${L.paper.size==='custom'?'Custom':esc(L.paper.size)} ${fmt(p.w)} × ${fmt(p.h)}${p.rot?` · ${fmt(p.rot)}°`:''}</text></g>`;
+  h+=tapeSVG(p);
   keepouts().forEach(k=>h+=`<rect class="keep" ${rA(k)}></rect>`);
   $('under').innerHTML=h;
 }
@@ -168,6 +169,22 @@ function dimsSVG(b){
   if(Math.abs(d.back)>0.05)seg(cx,d.y1,cx,180,d.back,cx+1.6,(d.y1+180)/2-1.2,'start');
   if(b.rot)h+=`<rect class="dimext" x="${X(d.x0)}" y="${Y(d.y1)}" width="${(d.x1-d.x0).toFixed(2)}" height="${(d.y1-d.y0).toFixed(2)}"></rect>`;
   return h;
+}
+/* Masking tape strips along the sheet's own edges, in its rotated frame. */
+function tapeSVG(p){
+  const t=L.tape,edges=['left','front','right','back'].filter(e=>t[e]);if(!edges.length)return '';
+  const o=t.on_paper,out=t.width-t.on_paper,ext=t.overhang??6,k=t.keep_out;
+  const rects={left:R(p.x-out,p.y-ext,t.width,p.h+2*ext),right:R(p.x+p.w-o,p.y-ext,t.width,p.h+2*ext),
+               front:R(p.x-ext,p.y-out,p.w+2*ext,t.width),back:R(p.x-ext,p.y+p.h-o,p.w+2*ext,t.width)};
+  let h=`<g ${rotAttr(p)}>`;
+  for(const e of edges){
+    const r=rects[e];h+=`<rect class="tape" ${rA(r)} rx=".6"></rect>`;
+    if(k>0)h+=`<rect class="tapekeep" ${rA(grow(r,k))}></rect>`;
+    const vert=e==='left'||e==='right',cx=r.x+r.w/2,cy=r.y+r.h/2;
+    h+=vert?`<text class="tapelbl" x="${X(cx)}" y="${Y(cy)}" text-anchor="middle" transform="rotate(-90 ${X(cx)} ${Y(cy)})">TAPE</text>`
+           :`<text class="tapelbl" x="${X(cx)}" y="${(V.y1-cy+1).toFixed(2)}" text-anchor="middle">TAPE</text>`;
+  }
+  return h+'</g>';
 }
 function knob(b,kind){
   const [bx,by]=toWorld(b,b.w/2,b.h),[kx,ky]=toWorld(b,b.w/2,b.h+9);
@@ -259,6 +276,8 @@ function syncInputs(){
   for(const el of layoutInputs){if(el===document.activeElement)continue;const v=getP(L,el.id.slice(2));el.value=typeof v==='number'?Math.round(v*100)/100:v}
   for(const el of prepInputs){const v=job.prep[el.id.slice(2)];if(el.type==='range'){const o=$(el.id+'.out');if(o)o.textContent=fmtVal(v,el.step,el.dataset.unit||'')}if(el===document.activeElement)continue;if(el.type==='checkbox')el.checked=!!v;else el.value=v}
   document.querySelectorAll('#orient button').forEach(b=>b.setAttribute('aria-pressed',b.dataset.o===L.paper.orientation));
+  document.querySelectorAll('#tapeEdges button').forEach(b=>b.setAttribute('aria-pressed',!!L.tape[b.dataset.edge]));
+  $('clearClips').disabled=!L.clips.length;
   $('cliplist').innerHTML=L.clips.map((c,i)=>`<li data-i="${i}" class="${sel==='clip:'+i?'sel':''}"><span>Clip ${i+1} · X ${fmt(c.x)} Y ${fmt(c.y)}</span><button type="button" aria-label="Remove clip ${i+1}" data-rm="${i}">×</button></li>`).join('');
   $('aspect').disabled=!job.image;
   const custom=L.paper.size==='custom';$('pwField').hidden=$('phField').hidden=!custom;
@@ -308,6 +327,10 @@ $('cliplist').addEventListener('click',e=>{
   const rm=e.target.closest('[data-rm]');if(rm){L.clips.splice(+rm.dataset.rm,1);sel='area';changed(['clips']);return}
   const li=e.target.closest('li');if(li){sel='clip:'+li.dataset.i;render();svg.focus()}
 });
+document.querySelectorAll('#tapeEdges button').forEach(b=>b.onclick=()=>{L.tape[b.dataset.edge]=!L.tape[b.dataset.edge];changed(['tape'])});
+$('tapeAll').onclick=()=>{for(const e of ['left','front','right','back'])L.tape[e]=true;changed(['tape'])};
+$('tapeNone').onclick=()=>{for(const e of ['left','front','right','back'])L.tape[e]=false;changed(['tape'])};
+$('clearClips').onclick=()=>{L.clips=[];sel='area';changed(['clips'])};
 $('addClip').onclick=()=>{L.clips.push({x:82,y:-6});sel='clip:'+(L.clips.length-1);changed(['clips'])};
 $('fit').onclick=()=>fitRequest('fit');
 $('center').onclick=()=>fitRequest('center');

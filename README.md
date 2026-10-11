@@ -129,6 +129,13 @@ Set these in **Bed → Paper**:
 - **From bed edges:** Left / Front / Right / Back show how far the sheet (or drawing area) is from each plate edge. Type any of them to move it there. Negative means it hangs over.
 - **Center** puts the sheet in the middle of the plate.
 
+**Tape** (Bed → Tape): mark which edges of the sheet are taped down (Left, Front, Right, Back), and set:
+- **Tape width:** the width of your roll.
+- **On paper:** how far the tape reaches onto the sheet.
+- **Keep-out:** the gap to keep between the tape and any ink.
+
+The strips show on the plate and turn with the sheet. The **Clear of tape** check refuses a drawing area that touches them, and **Fit to Free Space** stays clear of them. Clips are optional when you tape: **Remove All** clears them. If nothing holds the sheet down, you get a note.
+
 Select the paper or the drawing area on the plate and measurement lines show the same distances. Overhang is in red. The ruler button in the status bar turns the lines on and off.
 
 ### Rotation

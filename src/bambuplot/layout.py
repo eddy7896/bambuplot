@@ -153,6 +153,25 @@ class Paper(BaseModel):
         return box(self.x + w / 2, self.y + h / 2, w - 2 * inset, h - 2 * inset, self.rotation)
 
 
+EDGES = ("left", "front", "right", "back")
+
+
+class Tape(BaseModel):
+    """Masking tape along the paper's own edges (they turn with the paper)."""
+
+    left: bool = False
+    front: bool = False
+    right: bool = False
+    back: bool = False
+    width: float = Field(18.0, ge=3, le=60)  # roll width
+    on_paper: float = Field(8.0, ge=0.5, le=40)  # how far the tape reaches onto the sheet
+    keep_out: float = Field(2.0, ge=0, le=20)  # extra gap between the tape and any ink
+    overhang: float = 6.0  # how far the strip runs past each corner
+
+    def edges(self) -> list[str]:
+        return [e for e in EDGES if getattr(self, e)]
+
+
 class Pen(BaseModel):
     offset_x: float = 0.0  # pen tip minus nozzle, +X right
     offset_y: float = 0.0  # pen tip minus nozzle, +Y toward the back
@@ -222,6 +241,7 @@ class Layout(BaseModel):
     clip_keep_out: float = 6.0
     clips: list[Clip] = Field(default_factory=_default_clips)
     area: Area = Field(default_factory=lambda: Area(x=22, y=24, w=136, h=132))
+    tape: Tape = Field(default_factory=Tape)
     touch_off: TouchOff = "fl"
 
     @property
@@ -237,6 +257,26 @@ class Layout(BaseModel):
 
     def keep_outs(self) -> list[Rect]:
         return [r.grow(self.clip_keep_out) for r in self.clip_rects()]
+
+    def tape_polys(self, grow: float = 0.0) -> list[tuple[str, np.ndarray]]:
+        """Each taped edge's strip as a polygon in the printer frame, optionally grown."""
+        t, (w, h) = self.tape, self.paper.dims()
+        out_w = t.width - t.on_paper  # the part of the tape off the sheet
+        ext = t.overhang
+        local = {  # x0, y0, x1, y1 in the paper's own frame, origin at its front-left corner
+            "left": (-out_w, -ext, t.on_paper, h + ext),
+            "right": (w - t.on_paper, -ext, w + out_w, h + ext),
+            "front": (-ext, -out_w, w + ext, t.on_paper),
+            "back": (-ext, h - t.on_paper, w + ext, h + out_w),
+        }
+        pc = np.array([self.paper.x + w / 2, self.paper.y + h / 2])
+        out = []
+        for edge in t.edges():
+            x0, y0, x1, y1 = local[edge]
+            cx, cy = (x0 + x1) / 2 - w / 2, (y0 + y1) / 2 - h / 2  # center relative to the paper's center
+            c = pc + rotation(self.paper.rotation) @ np.array([cx, cy])
+            out.append((edge, box(c[0], c[1], x1 - x0 + 2 * grow, y1 - y0 + 2 * grow, self.paper.rotation)))
+        return out
 
     def local_touch(self) -> tuple[float, float, int, int]:
         """Touch-off point in area coordinates, plus the inward direction along each edge."""
@@ -263,7 +303,7 @@ class Layout(BaseModel):
     def allowed_polys(self) -> tuple[list[np.ndarray], list[np.ndarray]]:
         """Regions the area must stay inside, and regions it must stay out of."""
         keep_in = [self.paper.poly(self.paper.margin), BED.poly(), self.reach().poly()]
-        keep_out = [k.poly() for k in self.keep_outs()]
+        keep_out = [k.poly() for k in self.keep_outs()] + [p for _, p in self.tape_polys(self.tape.keep_out)]
         return keep_in, keep_out
 
     def edge_distances(self, poly: np.ndarray) -> dict:
@@ -308,9 +348,22 @@ class Layout(BaseModel):
             else f"At least {self.clip_keep_out:g} mm from every clip.",
         ))
 
+        taped = [e for e, poly in self.tape_polys(self.tape.keep_out) if overlaps(poly, ap)]
+        if self.tape.edges():
+            out.append(Check(
+                "bad" if taped else "ok", "Clear of tape",
+                f"Overlaps the tape on the {', '.join(taped)} edge{'s' if len(taped) > 1 else ''}." if taped
+                else f"At least {self.tape.keep_out:g} mm from the tape on the {', '.join(self.tape.edges())} "
+                     f"edge{'s' if len(self.tape.edges()) > 1 else ''}.",
+            ))
+
         loose = [str(i + 1) for i, r in enumerate(self.clip_rects()) if not overlaps(r.poly(), paper)]
         if loose:
             out.append(Check("warn", "Clip not on paper", f"Clip {', '.join(loose)} doesn't touch the sheet."))
+        holding = len(self.clips) - len(loose)
+        if holding == 0 and not self.tape.edges():
+            out.append(Check("warn", "Nothing holds the paper",
+                             "No clip touches the sheet and no edge is taped. Loose paper shifts as the bed moves."))
 
         over = {
             "front": max(0.0, -paper[:, 1].min()), "back": max(0.0, paper[:, 1].max() - BED_H),

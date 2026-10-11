@@ -361,3 +361,9 @@ dialog::backdrop{background:rgba(0,0,0,.25)}
 .dimlbl{font:600 3.3px var(--mono);fill:var(--accent);paint-order:stroke;stroke:var(--canvas);stroke-width:1.1px;stroke-linejoin:round;pointer-events:none}
 .dimlbl.over{fill:var(--bad)}
 .drawrect{fill:var(--accent-soft);stroke:var(--accent);stroke-width:.5;stroke-dasharray:2 1;pointer-events:none}
+
+/* tape */
+.segmented.multi button[aria-pressed="true"]{background:var(--accent);color:var(--on-accent);box-shadow:none}
+.tape{fill:#e7d9a6;fill-opacity:.88;stroke:#c8b77c;stroke-width:.3;pointer-events:none}
+.tapekeep{fill:none;stroke:#b39b4c;stroke-width:.3;stroke-dasharray:1.2 1.2;pointer-events:none}
+.tapelbl{fill:#7d6a2e;font:600 2.8px var(--mono);pointer-events:none}
