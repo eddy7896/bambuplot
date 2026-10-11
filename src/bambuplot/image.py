@@ -10,8 +10,22 @@ from typing import Literal
 import cv2
 import numpy as np
 from PIL import Image, ImageOps
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from scipy.ndimage import map_coordinates
+
+
+def _clean_crop(v):
+    if v is None:
+        return None
+    try:
+        u0, v0, u1, v1 = (min(1.0, max(0.0, float(x))) for x in v)
+    except (TypeError, ValueError):
+        return None
+    u0, u1 = sorted((u0, u1))
+    v0, v1 = sorted((v0, v1))
+    if u1 - u0 < 0.01 or v1 - v0 < 0.01 or (u0 <= 0 and v0 <= 0 and u1 >= 1 and v1 >= 1):
+        return None  # too small to use, or the whole picture
+    return [u0, v0, u1, v1]
 
 
 class Prep(BaseModel):
@@ -23,6 +37,13 @@ class Prep(BaseModel):
     invert: bool = False
     paper_white: float = Field(0.0, ge=0, le=0.5)  # darkness below this becomes pure white
     use_mask: bool = True  # apply the subject selection / background removal
+    crop: list[float] | None = None  # (u0, v0, u1, v1) of the original picture, 0–1, before turning
+    fit: Literal["fill", "fit"] = "fill"  # fill the area (trim edges) or fit inside it (blank margins)
+
+    @field_validator("crop", mode="before")
+    @classmethod
+    def _crop(cls, v):
+        return _clean_crop(v)
     mask_feather: float = Field(0.0, ge=0, le=5)  # mm of softening at the selection edge
     rotate: Literal[0, 90, 180, 270] = 0  # clockwise, applied before cropping
     px_per_mm: float = Field(4.0, gt=0, le=20)
@@ -84,6 +105,26 @@ def cover_crop(gray: np.ndarray, aspect: float) -> np.ndarray:
     return gray[y0 : y0 + nh, :]
 
 
+def crop_norm(a: np.ndarray, crop: list[float] | None) -> np.ndarray:
+    """Cut a normalized (u0, v0, u1, v1) box out of an image array."""
+    if not crop:
+        return a
+    rows, cols = a.shape[:2]
+    c0, c1 = int(round(crop[0] * cols)), max(int(round(crop[2] * cols)), int(round(crop[0] * cols)) + 2)
+    r0, r1 = int(round(crop[1] * rows)), max(int(round(crop[3] * rows)), int(round(crop[1] * rows)) + 2)
+    return a[r0:min(r1, rows), c0:min(c1, cols)]
+
+
+def pad_to(a: np.ndarray, aspect: float, value: float) -> np.ndarray:
+    """Pad evenly so width / height == aspect (the opposite of cover_crop)."""
+    rows, cols = a.shape[:2]
+    if cols / rows < aspect:
+        extra = int(round(rows * aspect)) - cols
+        return np.pad(a, ((0, 0), (extra // 2, extra - extra // 2)), constant_values=value)
+    extra = int(round(cols / aspect)) - rows
+    return np.pad(a, ((extra // 2, extra - extra // 2), (0, 0)), constant_values=value)
+
+
 def sample_image(cols: int, rows: int, w: float, h: float) -> np.ndarray:
     """A shaded sphere with a soft shadow, used when no image is loaded."""
     m = min(w, h)
@@ -123,12 +164,19 @@ def prepare(gray: np.ndarray | None, w: float, h: float, prep: Prep | None = Non
         data = sample_image(cols, rows, w, h)
     else:
         use_mask = mask is not None and prep.use_mask
+        gray = crop_norm(gray, prep.crop)
+        mask = crop_norm(mask, prep.crop) if use_mask else None
         if prep.rotate:
             k = -(prep.rotate // 90)
             gray = np.rot90(gray, k=k)
             mask = np.rot90(mask, k=k) if use_mask else None
+        if prep.fit == "fit":  # whole picture inside the area, blank (and unselected) margins
+            if not use_mask:
+                mask, use_mask = np.ones(gray.shape, np.float32), True
+            gray = pad_to(gray, w / h, 1.0)
+            mask = pad_to(np.asarray(mask, np.float32), w / h, 0.0)
         crop = cover_crop(gray, w / h)
-        data = cv2.resize(crop, (cols, rows), interpolation=cv2.INTER_AREA)
+        data = cv2.resize(np.ascontiguousarray(crop), (cols, rows), interpolation=cv2.INTER_AREA)
         if use_mask:
             keep = cv2.resize(np.ascontiguousarray(cover_crop(mask, w / h), dtype=np.float32), (cols, rows),
                               interpolation=cv2.INTER_AREA)

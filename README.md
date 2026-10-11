@@ -60,6 +60,18 @@ For PNG and JPG pictures, the Source panel has **Remove background** and **Selec
 - **Transparent PNGs** (already cut out) start with their transparency as the selection.
 - **Use selection** switches the cut-out on and off without losing it. **Edge softness** feathers the cut.
 
+### Cropping
+
+Click **Crop…** in the Source panel. It opens the picture editor on the Crop tool.
+
+- **Draw the crop:** drag a box on the picture, drag inside it to move it, or drag a corner to resize it. A thirds grid helps with composition.
+- **Shape:** Free, Drawing area, Original, or Square.
+- **Match area to crop:** reshapes the drawing area to the crop's proportions, keeping its width and center.
+- **Reset crop:** goes back to the whole picture.
+- **Placement** (in the tone controls): **Fill the area** trims whatever doesn't fit. **Fit inside** shows the whole picture with blank margins.
+
+The crop is stored in the picture's own orientation, so **Turn image** still works on it. The plate preview shows exactly the part that will be plotted.
+
 ### Effects for photos and pictures
 
 Every setting is a slider with a live value. Settings that only matter in some modes appear when they apply, and **Reset settings** restores the defaults. The image tone controls are sliders too, including **Paper white**, which leaves near-white areas without ink.

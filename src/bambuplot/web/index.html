@@ -110,6 +110,8 @@ input:focus-visible,select:focus-visible,button:focus-visible{outline:2px solid 
 .ed-bar{display:flex;flex-wrap:wrap;align-items:center;gap:10px 16px;padding:12px 14px;border-bottom:1px solid var(--line)}
 .ed-bar h2{font-size:15px;margin:0 6px 0 0}
 .ed-size{min-width:150px}
+.ed-group{display:flex;align-items:flex-end;gap:10px 14px;flex-wrap:wrap}
+.ed-group[hidden]{display:none}
 .aibox{display:flex;align-items:flex-end;gap:8px;margin-top:8px}
 .aibox .f{flex:1;min-width:0}
 .hint code{font:12px var(--font-mono);background:var(--bg);padding:1px 4px;border-radius:4px}
@@ -211,7 +213,7 @@ input[type=file]{font:12px var(--font-ui);color:var(--muted);max-width:100%}
         </defs>
         <g id="under"></g>
         <g id="inkg" clip-path="url(#inkClip)">
-          <image id="srcimg" class="src" preserveAspectRatio="xMidYMid slice" x="0" y="0" width="1" height="1" href="" visibility="hidden"></image>
+          <g id="srcturn" class="src" visibility="hidden"><svg id="srcwrap" x="0" y="0" width="1" height="1" viewBox="0 0 1 1" preserveAspectRatio="xMidYMid slice" overflow="hidden"><image id="srcimg" preserveAspectRatio="none" x="0" y="0" width="1" height="1" href=""></image></svg></g>
           <path id="travel" d=""></path>
           <path id="ink" d=""></path>
         </g>
@@ -242,6 +244,7 @@ input[type=file]{font:12px var(--font-ui);color:var(--muted);max-width:100%}
             <div class="btns">
               <button class="btn" type="button" id="selAuto">Remove background</button>
               <button class="btn" type="button" id="selEdit">Select subject…</button>
+              <button class="btn" type="button" id="cropOpen">Crop…</button>
             </div>
             <div class="aibox" id="aiBox" hidden>
               <label class="f">AI model<select id="aiModel" aria-label="AI model"></select></label>
@@ -249,6 +252,7 @@ input[type=file]{font:12px var(--font-ui);color:var(--muted);max-width:100%}
             </div>
             <p class="hint" id="aiInstall" hidden>For one-click AI background removal, run <code>uv sync --extra ai</code> and restart BambuPlot.</p>
             <p class="hint" id="selInfo">Nothing removed yet.</p>
+            <p class="hint" id="cropInfo" hidden></p>
             <div class="g2" id="selOpts" hidden>
               <label class="f row"><input type="checkbox" id="P.use_mask"> Use selection</label>
               <label class="f slider" for="P.mask_feather"><span class="lab">Edge softness<output id="P.mask_feather.out"></output></span><input type="range" id="P.mask_feather" min="0" max="3" step="0.1" data-unit="mm"></label>
@@ -260,6 +264,9 @@ input[type=file]{font:12px var(--font-ui);color:var(--muted);max-width:100%}
             <label class="f slider" for="P.brightness"><span class="lab">Brightness<output id="P.brightness.out"></output></span><input type="range" id="P.brightness" min="-0.5" max="0.5" step="0.01"></label>
             <label class="f slider" for="P.gamma"><span class="lab">Gamma<output id="P.gamma.out"></output></span><input type="range" id="P.gamma" min="0.3" max="3" step="0.05"></label>
             <label class="f slider" for="P.paper_white"><span class="lab">Paper white<output id="P.paper_white.out"></output></span><input type="range" id="P.paper_white" min="0" max="0.5" step="0.01"><small>Near-white areas get no ink</small></label>
+            <label class="f">Placement
+              <select id="P.fit" data-kind="text"><option value="fill">Fill the area (trim edges)</option><option value="fit">Fit inside (blank margins)</option></select>
+            </label>
             <label class="f">Turn image
               <select id="P.rotate"><option value="0">Upright</option><option value="90">90° clockwise</option><option value="180">180°</option><option value="270">90° counter-clockwise</option></select>
             </label>
@@ -448,14 +455,22 @@ input[type=file]{font:12px var(--font-ui);color:var(--muted);max-width:100%}
 <dialog id="editor" aria-labelledby="edTitle">
   <div class="ed-wrap">
     <div class="ed-bar">
-      <h2 id="edTitle">Select subject</h2>
+      <h2 id="edTitle">Edit picture</h2>
       <div class="seg" id="edTools" role="group" aria-label="Tool">
+        <button type="button" data-tool="crop" aria-pressed="false">Crop</button>
         <button type="button" data-tool="box" aria-pressed="true">Box select</button>
         <button type="button" data-tool="erase" aria-pressed="false">Erase</button>
         <button type="button" data-tool="keep" aria-pressed="false">Restore</button>
       </div>
+      <div class="ed-group" id="edCropOpts" hidden>
+        <label class="f">Shape<select id="edAspect"><option value="free">Free</option><option value="area">Drawing area</option><option value="original">Original</option><option value="square">Square</option></select></label>
+        <button class="btn" type="button" id="edMatchArea" title="Reshape the drawing area to this crop">Match area to crop</button>
+        <button class="btn" type="button" id="edCropReset">Reset crop</button>
+      </div>
+      <div class="ed-group" id="edBrushOpts">
       <label class="f slider ed-size" for="edSize"><span class="lab">Brush size<output id="edSize.out">28 px</output></span><input type="range" id="edSize" min="4" max="160" step="1" value="28"></label>
       <label class="f row" title="The brush finds the subject's real edge instead of painting exactly"><input type="checkbox" id="edSmart"> Smart edges</label>
+      </div>
       <div class="btns ed-actions">
         <button class="btn" type="button" id="edAuto">Remove background</button>
         <button class="btn" type="button" id="edAI" hidden>AI remove</button>
@@ -622,11 +637,15 @@ function placeInk(){
   const a=areaBox(),g=$('inkg'),pw=plan?.w||a.w,ph=plan?.h||a.h,[cx,cy]=centerOf(a);
   g.setAttribute('transform',`translate(${X(cx)} ${Y(cy)}) rotate(${-a.rot}) scale(${a.w/pw} ${a.h/ph}) translate(${-pw/2} ${-ph/2})`);
   const c=$('inkClipRect');c.setAttribute('width',pw);c.setAttribute('height',ph);
-  const im=$('srcimg'),turn=srcKind()==='svg'?0:(+job.prep.rotate||0),side=turn===90||turn===270;
-  im.setAttribute('width',side?ph:pw);im.setAttribute('height',side?pw:ph);
-  im.setAttribute('x',side?(pw-ph)/2:0);im.setAttribute('y',side?(ph-pw)/2:0);
-  im.setAttribute('transform',turn?`rotate(${turn} ${pw/2} ${ph/2})`:'');
-  im.setAttribute('visibility',job.image&&$('showImg').checked?'visible':'hidden');
+  const raster=srcKind()==='raster',turn=raster?(+job.prep.rotate||0):0,side=turn===90||turn===270;
+  const iw=job.image?.w||1,ih=job.image?.h||1,cr=(raster&&job.prep.crop)||[0,0,1,1];
+  const sw=side?ph:pw,sh=side?pw:ph,wrap=$('srcwrap'),im=$('srcimg');
+  wrap.setAttribute('x',(pw-sw)/2);wrap.setAttribute('y',(ph-sh)/2);wrap.setAttribute('width',sw);wrap.setAttribute('height',sh);
+  wrap.setAttribute('viewBox',`${cr[0]*iw} ${cr[1]*ih} ${(cr[2]-cr[0])*iw} ${(cr[3]-cr[1])*ih}`);
+  wrap.setAttribute('preserveAspectRatio',!raster||job.prep.fit==='fit'?'xMidYMid meet':'xMidYMid slice');
+  im.setAttribute('width',iw);im.setAttribute('height',ih);
+  $('srcturn').setAttribute('transform',turn?`rotate(${turn} ${pw/2} ${ph/2})`:'');
+  $('srcturn').setAttribute('visibility',job.image&&$('showImg').checked?'visible':'hidden');
   $('ink').style.strokeWidth=L.pen.width_mm;
 }
 function buildInk(){
@@ -687,7 +706,7 @@ for(const el of layoutInputs)el.addEventListener('input',()=>{
   setP(L,key,v);changed([key]);
 });
 for(const el of prepInputs)el.addEventListener('input',()=>{
-  const key=el.id.slice(2);let v=el.type==='checkbox'?el.checked:parseFloat(el.value);
+  const key=el.id.slice(2);let v=el.type==='checkbox'?el.checked:el.dataset.kind==='text'?el.value:parseFloat(el.value);
   if(el.type==='number'&&(!isFinite(v)||(el.min!==''&&v<+el.min)))return;
   job.prep[key]=v;if(el.type==='range'){const o=$(el.id+'.out');if(o)o.textContent=fmtVal(v,el.step,el.dataset.unit||'')}save();placeInk();schedulePlan(400);
 });
@@ -787,11 +806,10 @@ function renderThumb(){
       :`${im.w} × ${im.h} px`;
     t.innerHTML=`<img src="${im.url}" alt=""><span>${esc(im.name)}<br>${info}</span><button class="btn" type="button" id="clearSrc">Remove</button>`;
     $('srcimg').setAttribute('href',im.url);
-    $('clearSrc').onclick=()=>{URL.revokeObjectURL(im.url);job.image=null;$('file').value='';renderThumb();buildEffects();save();schedulePlan(0)};
+    $('clearSrc').onclick=()=>{URL.revokeObjectURL(im.url);job.image=null;job.prep.crop=null;$('file').value='';renderThumb();buildEffects();save();schedulePlan(0)};
   }
-  $('selBox').hidden=im?.kind!=='raster';
+  $('selBox').hidden=im?.kind!=='raster';renderCropInfo();
   if(im?.kind==='raster'){$('selInfo').textContent=selText(im.sel);$('selOpts').hidden=!im.sel?.has_mask;if(im.sel?.has_mask)$('srcimg').setAttribute('href',im.sel.preview)}
-  $('srcimg').setAttribute('preserveAspectRatio',im?.kind==='svg'?'xMidYMid meet':'xMidYMid slice');
   placeInk();syncInputs();
 }
 $('file').onchange=async e=>{
@@ -801,6 +819,7 @@ $('file').onchange=async e=>{
     const r=await fetch('/api/image',{method:'POST',body:fd});const d=await r.json();
     if(!r.ok)throw new Error(d.detail||r.statusText);
     if(job.image?.url)URL.revokeObjectURL(job.image.url);
+    job.prep.crop=null;
     job.image={id:d.id,kind:d.kind,w:d.width,h:d.height,name:f.name,warnings:d.warnings||[],strokes:d.strokes,fills:d.fills,sel:d.selection||null,url:URL.createObjectURL(f)};
     renderThumb();buildEffects();save();schedulePlan(0);
   }catch(err){setStatus('Upload failed: '+err.message,true)}
@@ -960,7 +979,7 @@ function applySel(d){
   $('selInfo').textContent=selText(d);$('selOpts').hidden=!d.has_mask;
   $('srcimg').setAttribute('href',d.has_mask?d.preview:job.image.url);
   const st=$('edStatus');st.classList.remove('err');
-  st.textContent=d.has_mask?selText(d)+' Grey checks show what will be left blank.':'Drag a box around the subject, or press Remove background.';
+  st.textContent=ED.tool==='crop'?cropText():d.has_mask?selText(d)+' Grey checks show what will be left blank.':'Drag a box around the subject, or press Remove background.';
   $('edUndo').disabled=!d.can_undo;
   if(d.mask){const im=new Image();im.onload=()=>{ED.mask=im;drawOverlay()};im.src=d.mask}else{ED.mask=null;drawOverlay()}
   schedulePlan(0);
@@ -977,7 +996,7 @@ async function maskOp(body,where='edStatus'){
     applySel(d);if(where!=='edStatus')$('selInfo').textContent=selText(d);
     if(body.op==='ai')loadAI();
   }catch(_){st.textContent='Could not reach the BambuPlot server.';st.classList?.add('err')}
-  finally{ED.busy=false;$('edDraw').getContext('2d').clearRect(0,0,$('edDraw').width,$('edDraw').height)}
+  finally{ED.busy=false;drawEdStroke()}
 }
 function layoutEd(){
   if(!ED.img)return;
@@ -1002,15 +1021,23 @@ function drawOverlay(){
   }
   og.putImageData(px,0,0);g.imageSmoothingEnabled=true;g.drawImage(off,0,0,ED.dw,ED.dh);
 }
-function openEditor(){
+function openEditor(tool){
   if(!job.image||job.image.kind!=='raster')return;
+  ED.crop=job.prep.crop?[...job.prep.crop]:[0,0,1,1];
+  if(tool)setTool(tool);
   $('editor').showModal();
   const im=new Image();im.onload=()=>{ED.img=im;layoutEd();applySel(job.image.sel)};im.src=job.image.url;
 }
-function setTool(t){ED.tool=t;document.querySelectorAll('#edTools button').forEach(b=>b.setAttribute('aria-pressed',b.dataset.tool===t))}
+function setTool(t){
+  ED.tool=t;document.querySelectorAll('#edTools button').forEach(b=>b.setAttribute('aria-pressed',b.dataset.tool===t));
+  $('edCropOpts').hidden=t!=='crop';$('edBrushOpts').hidden=t==='crop'||t==='box';
+  if(t==='crop')$('edStatus').textContent=cropText();
+  drawEdStroke();
+}
 document.querySelectorAll('#edTools button').forEach(b=>b.onclick=()=>setTool(b.dataset.tool));
 $('edSize').oninput=e=>{$('edSize.out').textContent=e.target.value+' px'};
-$('selEdit').onclick=openEditor;
+$('selEdit').onclick=()=>openEditor('box');
+$('cropOpen').onclick=()=>openEditor('crop');
 $('selAuto').onclick=()=>maskOp({op:'auto'},'selInfo');
 const AI={available:false,models:[]};
 async function loadAI(){
@@ -1034,11 +1061,86 @@ $('edUndo').onclick=()=>maskOp({op:'undo'});
 $('edReset').onclick=()=>maskOp({op:'reset'});
 $('edDone').onclick=()=>$('editor').close();
 $('editor').addEventListener('keydown',e=>{if((e.metaKey||e.ctrlKey)&&e.key.toLowerCase()==='z'){e.preventDefault();maskOp({op:'undo'})}
-  else if(e.key==='b')setTool('box');else if(e.key==='e')setTool('erase');else if(e.key==='r')setTool('keep')});
+  else if(e.key==='c')setTool('crop');else if(e.key==='b')setTool('box');else if(e.key==='e')setTool('erase');else if(e.key==='r')setTool('keep')});
 window.addEventListener('resize',()=>{if($('editor').open)layoutEd()});
 const edPt=e=>{const r=$('edDraw').getBoundingClientRect();return [Math.min(1,Math.max(0,(e.clientX-r.left)/r.width)),Math.min(1,Math.max(0,(e.clientY-r.top)/r.height))]};
+/* ----- crop ----- */
+const isFull=c=>c[0]<=0.0005&&c[1]<=0.0005&&c[2]>=0.9995&&c[3]>=0.9995;
+function cropText(){
+  const c=ED.crop||[0,0,1,1];
+  if(isFull(c))return 'Drag on the picture to crop it. The plot uses only what is inside the box.';
+  const iw=job.image.w,ih=job.image.h;
+  return `Crop: ${Math.round((c[2]-c[0])*iw)} × ${Math.round((c[3]-c[1])*ih)} px (${Math.round((c[2]-c[0])*100)}% × ${Math.round((c[3]-c[1])*100)}% of the picture). Drag inside to move it, or a corner to resize.`;
+}
+/* Target shape as width/height in picture pixels, or null for free. */
+function cropAspect(){
+  const v=$('edAspect').value,iw=job.image.w,ih=job.image.h,turn=+job.prep.rotate||0;
+  if(v==='area'){const a=L.area.w/L.area.h;return turn===90||turn===270?1/a:a}
+  if(v==='original')return iw/ih;
+  if(v==='square')return 1;
+  return null;
+}
+/* Box from fixed corner a to point p, held to the target shape and inside the picture. */
+function shapeBox(a,p){
+  let du=p[0]-a[0],dv=p[1]-a[1];const asp=cropAspect();
+  if(asp){
+    const r=asp*job.image.h/job.image.w; // du/dv in normalized units
+    if(Math.abs(du)/r>Math.abs(dv))dv=Math.sign(dv||1)*Math.abs(du)/r;else du=Math.sign(du||1)*Math.abs(dv)*r;
+    const lim=Math.min(1,(du>0?(1-a[0]):a[0])/Math.max(Math.abs(du),1e-9),(dv>0?(1-a[1]):a[1])/Math.max(Math.abs(dv),1e-9));
+    du*=lim;dv*=lim;
+  }else{du=Math.min(Math.max(du,-a[0]),1-a[0]);dv=Math.min(Math.max(dv,-a[1]),1-a[1])}
+  return [Math.min(a[0],a[0]+du),Math.min(a[1],a[1]+dv),Math.max(a[0],a[0]+du),Math.max(a[1],a[1]+dv)];
+}
+function commitCrop(){
+  const c=ED.crop;
+  if(c[2]-c[0]<0.02||c[3]-c[1]<0.02){ED.crop=job.prep.crop?[...job.prep.crop]:[0,0,1,1];drawEdStroke();return}
+  job.prep.crop=isFull(c)?null:c.map(v=>Math.round(v*10000)/10000);
+  renderCropInfo();save();placeInk();schedulePlan(0);$('edStatus').textContent=cropText();
+}
+function renderCropInfo(){
+  const c=job.prep.crop,el=$('cropInfo');
+  el.hidden=!c;if(c)el.textContent=`Cropped to ${Math.round((c[2]-c[0])*100)}% × ${Math.round((c[3]-c[1])*100)}% of the picture.`;
+}
+$('edAspect').onchange=()=>{
+  const asp=cropAspect();if(!asp){$('edStatus').textContent=cropText();return}
+  // Largest box of the new shape inside the current crop, centered on it.
+  const c=ED.crop,iw=job.image.w,ih=job.image.h,cw=(c[2]-c[0])*iw,ch=(c[3]-c[1])*ih;
+  let w=cw,h=w/asp;if(h>ch){h=ch;w=h*asp}
+  const cx=(c[0]+c[2])/2,cy=(c[1]+c[3])/2;
+  ED.crop=[cx-w/iw/2,cy-h/ih/2,cx+w/iw/2,cy+h/ih/2];commitCrop();drawEdStroke();
+};
+$('edCropReset').onclick=()=>{ED.crop=[0,0,1,1];commitCrop();drawEdStroke()};
+$('edMatchArea').onclick=()=>{
+  const c=ED.crop,turn=+job.prep.rotate||0;let asp=((c[2]-c[0])*job.image.w)/((c[3]-c[1])*job.image.h);
+  if(turn===90||turn===270)asp=1/asp;
+  const a=L.area,[,cy]=centerOf(a);a.h=Math.round(a.w/asp*10)/10;a.y=Math.round((cy-a.h/2)*10)/10;
+  changed(['area.h']);$('edStatus').textContent=`Drawing area reshaped to ${fmt(a.w)} × ${fmt(a.h)} mm to match the crop. Check the safety checks.`;
+};
+function drawCrop(g){
+  const c=ED.crop||[0,0,1,1],on=ED.tool==='crop';
+  if(isFull(c)&&!on)return;
+  const x0=c[0]*ED.dw,y0=c[1]*ED.dh,x1=c[2]*ED.dw,y1=c[3]*ED.dh;
+  g.save();g.fillStyle=on?'rgba(12,16,20,.55)':'rgba(12,16,20,.35)';
+  g.beginPath();g.rect(0,0,ED.dw,ED.dh);g.rect(x0,y0,x1-x0,y1-y0);g.fill('evenodd');
+  g.strokeStyle='#fff';g.lineWidth=on?2:1;g.strokeRect(x0,y0,x1-x0,y1-y0);
+  if(on){
+    g.globalAlpha=.5;g.lineWidth=1;g.beginPath();
+    for(const f of [1/3,2/3]){g.moveTo(x0+(x1-x0)*f,y0);g.lineTo(x0+(x1-x0)*f,y1);g.moveTo(x0,y0+(y1-y0)*f);g.lineTo(x1,y0+(y1-y0)*f)}
+    g.stroke();g.globalAlpha=1;g.fillStyle='#fff';
+    for(const [x,y] of [[x0,y0],[x1,y0],[x0,y1],[x1,y1]])g.fillRect(x-6,y-6,12,12);
+  }
+  g.restore();
+}
+function cropHit(p){
+  const c=ED.crop,tol=12/ED.dw,tolv=12/ED.dh;
+  const corners=[[c[0],c[1]],[c[2],c[1]],[c[0],c[3]],[c[2],c[3]]];
+  for(let i=0;i<4;i++)if(Math.abs(p[0]-corners[i][0])<tol&&Math.abs(p[1]-corners[i][1])<tolv)return {mode:'resize',anchor:corners[3-i]};
+  if(p[0]>c[0]&&p[0]<c[2]&&p[1]>c[1]&&p[1]<c[3]&&!isFull(c))return {mode:'move',start:[...c],from:p};
+  return {mode:'new',anchor:p};
+}
 function drawEdStroke(){
   const g=$('edDraw').getContext('2d');g.clearRect(0,0,ED.dw,ED.dh);const dr=ED.drag;
+  drawCrop(g);
   if(dr&&dr.tool==='box'){
     const [a,b]=[dr.pts[0],dr.pts[dr.pts.length-1]];
     g.setLineDash([6,4]);g.lineWidth=2;g.strokeStyle='#2246c8';g.fillStyle='rgba(34,70,200,.08)';
@@ -1048,15 +1150,27 @@ function drawEdStroke(){
     g.beginPath();dr.pts.forEach(([u,v],i)=>i?g.lineTo(u*ED.dw,v*ED.dh):g.moveTo(u*ED.dw,v*ED.dh));
     if(dr.pts.length===1)g.lineTo(dr.pts[0][0]*ED.dw+0.1,dr.pts[0][1]*ED.dh);g.stroke();
   }
-  if(!dr&&ED.hover&&ED.tool!=='box'){
+  if(!dr&&ED.hover&&(ED.tool==='erase'||ED.tool==='keep')){
     g.lineWidth=1.5;g.strokeStyle=ED.tool==='keep'?'#16793a':'#c0262d';g.beginPath();
     g.arc(ED.hover[0]*ED.dw,ED.hover[1]*ED.dh,+$('edSize').value/2,0,Math.PI*2);g.stroke();
   }
 }
 const edDraw=$('edDraw');
-edDraw.addEventListener('pointerdown',e=>{if(ED.busy)return;edDraw.setPointerCapture(e.pointerId);ED.drag={tool:ED.tool,pts:[edPt(e)]};drawEdStroke()});
+edDraw.addEventListener('pointerdown',e=>{
+  if(ED.busy)return;edDraw.setPointerCapture(e.pointerId);const p=edPt(e);
+  ED.drag=ED.tool==='crop'?{tool:'crop',...cropHit(p),pts:[p]}:{tool:ED.tool,pts:[p]};drawEdStroke();
+});
 edDraw.addEventListener('pointermove',e=>{
   const p=edPt(e);ED.hover=p;
+  if(ED.drag&&ED.drag.tool==='crop'){
+    const d=ED.drag;
+    if(d.mode==='move'){
+      const s=d.start,w=s[2]-s[0],h=s[3]-s[1];
+      const u0=Math.min(Math.max(s[0]+p[0]-d.from[0],0),1-w),v0=Math.min(Math.max(s[1]+p[1]-d.from[1],0),1-h);
+      ED.crop=[u0,v0,u0+w,v0+h];
+    }else ED.crop=shapeBox(d.anchor,p);
+    $('edStatus').textContent=cropText();drawEdStroke();return;
+  }
   if(ED.drag){const pts=ED.drag.pts,last=pts[pts.length-1];
     if(ED.drag.tool==='box')pts[1]=p;else if(Math.hypot(p[0]-last[0],p[1]-last[1])>0.002)pts.push(p)}
   drawEdStroke();
@@ -1064,6 +1178,7 @@ edDraw.addEventListener('pointermove',e=>{
 edDraw.addEventListener('pointerleave',()=>{ED.hover=null;if(!ED.drag)drawEdStroke()});
 edDraw.addEventListener('pointerup',()=>{
   const dr=ED.drag;ED.drag=null;if(!dr)return;
+  if(dr.tool==='crop'){commitCrop();drawEdStroke();return}
   if(dr.tool==='box'){
     const [a,b]=[dr.pts[0],dr.pts[dr.pts.length-1]];
     if(Math.abs(b[0]-a[0])<0.02||Math.abs(b[1]-a[1])<0.02){drawEdStroke();$('edStatus').textContent='Drag a bigger box around the subject.';return}
