@@ -138,6 +138,19 @@ The strips show on the plate and turn with the sheet. The **Clear of tape** chec
 
 Select the paper or the drawing area on the plate and measurement lines show the same distances. Overhang is in red. The ruler button in the status bar turns the lines on and off.
 
+### Alignment test
+
+Use this to find out how far off your drawings land on the sheet, and fix it.
+
+1. Create a test: **Alignment Test** on the dashboard makes one using your most recent layout. Or, in any project, use **Bed → Alignment → Download Test / Send Test…** (also in the Download menu and the Send sheet). It plots a circle with a crosshair, a millimetre scale and a "↑ back" arrow at the centre of the drawing area.
+2. Measure from the sheet's **left edge** and **front edge** to where the cross meets, and enter both. BambuPlot shows where the cross should be and how far off it landed, for example "2.5 mm right, 1.0 mm toward the front", and how to move the sheet.
+3. Fix it:
+   - **Update Paper Position:** tells the layout where the sheet really is.
+   - **Correct Pen Offset:** use this if you placed the sheet exactly, so the error is in the holder.
+4. Optionally, enter the circle's outside width and height to check that X and Y aren't stretched. More than 0.4% off points to belt tension.
+
+Measurements are in the sheet's own frame, so a rotated sheet works too.
+
 ### Rotation
 
 - **Paper and drawing area:** each can be rotated about its own center.

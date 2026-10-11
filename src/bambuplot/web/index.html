@@ -24,6 +24,9 @@
         <button type="button" data-sort="recent" aria-pressed="true">Recent</button>
         <button type="button" data-sort="name" aria-pressed="false">Name</button>
       </div>
+      <button class="tbtn" type="button" id="projAlign" title="A project that plots a circle and cross to check where drawings land">
+        <svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="10" cy="10" r="6"/><path d="M10 2v16M2 10h16"/></svg><span>Alignment Test</span>
+      </button>
       <button class="tbtn prominent" type="button" id="projNew" title="New project">
         <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 4v12M4 10h12"/></svg><span>New Project</span>
       </button>
@@ -168,6 +171,32 @@
 
       <!-- Bed -->
       <div class="pane" id="pane-setup" role="tabpanel" aria-labelledby="tab-setup" hidden>
+        <details class="group" id="alignGroup">
+          <summary><h2>Alignment</h2></summary>
+          <ol class="steps compact">
+            <li>Plot the alignment test: a circle and cross at the center of the drawing area.</li>
+            <li>Measure from the sheet's <b>left edge</b> and <b>front edge</b> to where the cross meets.</li>
+            <li>Enter both below to see how far off it is, then apply a fix.</li>
+          </ol>
+          <div class="btnrow tight">
+            <button class="btn small" type="button" id="alDownload">Download Test</button>
+            <button class="btn small" type="button" id="alSend">Send Test…</button>
+          </div>
+          <div class="grid2" style="margin-top:10px">
+            <div class="field"><span>Should be from left</span><output class="readout" id="alExpL">–</output></div>
+            <div class="field"><span>Should be from front</span><output class="readout" id="alExpF">–</output></div>
+            <label class="field"><span>Measured from left</span><input type="number" id="alMeasL" step="0.1" placeholder="mm"></label>
+            <label class="field"><span>Measured from front</span><input type="number" id="alMeasF" step="0.1" placeholder="mm"></label>
+            <label class="field" title="Optional: the circle's outside width, left to right"><span>Circle width <small>optional</small></span><input type="number" id="alW" step="0.1" placeholder="mm"></label>
+            <label class="field" title="Optional: the circle's outside height, front to back"><span>Circle height <small>optional</small></span><input type="number" id="alH" step="0.1" placeholder="mm"></label>
+          </div>
+          <div class="alignresult" id="alResult" role="status" hidden></div>
+          <div class="btnrow tight">
+            <button class="btn small accent" type="button" id="alPaper" disabled title="Tell BambuPlot where the sheet really is">Update Paper Position</button>
+            <button class="btn small" type="button" id="alPen" disabled title="The sheet was placed exactly; fix the pen holder's offset">Correct Pen Offset</button>
+          </div>
+          <p class="foot"><b>Update Paper Position</b> if the sheet may sit a little differently each time you place it. <b>Correct Pen Offset</b> if you placed the sheet exactly where the plate shows it, so the error is in the holder.</p>
+        </details>
         <details class="group" open>
           <summary><h2>Drawing Area</h2></summary>
           <div class="grid2">
@@ -355,6 +384,7 @@
   <hr>
   <button type="button" id="dlSmoke" role="menuitem">Smoke test</button>
   <button type="button" id="dlPress" role="menuitem">Press ladder</button>
+  <button type="button" id="dlAlign" role="menuitem">Alignment test</button>
 </div>
 
 <div popover id="checksPop" class="popover">
@@ -367,7 +397,7 @@
   <div id="sendbox">
     <h2 id="sendTitle">Send to Printer</h2>
     <label class="field wide"><span>What to send</span>
-      <select id="send-kind"><option value="art">This artwork</option><option value="smoke">Smoke test</option><option value="press">Press ladder</option></select>
+      <select id="send-kind"><option value="art">This artwork</option><option value="smoke">Smoke test</option><option value="press">Press ladder</option><option value="align">Alignment test</option></select>
     </label>
     <ol class="steps">
       <li>The printer homes first, so the pen holder must be empty.</li>

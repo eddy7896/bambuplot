@@ -38,3 +38,43 @@ def press_ladder(layout: Layout, presses=DEFAULT_PRESSES, length: float = 25.0, 
     ]
     order = ", ".join(f"{p:g}" for p in presses)
     return compile_strokes(layout, strokes, title=f"press ladder, from the touch-off corner inward: {order} mm")
+
+
+def alignment_test(layout: Layout, radius: float = 25.0) -> str:
+    """The alignment target as a complete job, drawn at the center of the drawing area."""
+    from .pipeline import make_plan, plan_to_gcode
+
+    plan = make_plan(layout, "alignment", {"radius": radius})
+    return plan_to_gcode(layout, plan, title=f"alignment test, {radius:g} mm circle at the area center")
+
+
+def alignment_correction(layout: Layout, measured_left: float, measured_front: float) -> dict:
+    """Compare where the target's center landed on the sheet with where it was meant to land.
+
+    Measurements are from the sheet's own left and front edges to the cross. Returns the error
+    in the sheet's frame and in the plate's frame, plus the fixes.
+    """
+    import numpy as np
+
+    from .layout import rotation
+
+    p, a = layout.paper, layout.area
+    w, h = p.dims()
+    pc = np.array([p.x + w / 2, p.y + h / 2])
+    target = np.array(a.center)
+    # Where the center should be, measured from the sheet's own front-left corner.
+    local = rotation(-p.rotation) @ (target - pc) + [w / 2, h / 2]
+    err_local = np.array([measured_left, measured_front]) - local  # + = landed right / toward the back
+    err_bed = rotation(p.rotation) @ err_local
+    return {
+        "expected_left": float(local[0]),
+        "expected_front": float(local[1]),
+        "error_x": float(err_local[0]),
+        "error_y": float(err_local[1]),
+        "error_bed_x": float(err_bed[0]),
+        "error_bed_y": float(err_bed[1]),
+        # Fixes: move the sheet by +error; or tell the layout the sheet is at -error; or the pen is at +error.
+        "move_sheet": [float(err_bed[0]), float(err_bed[1])],
+        "paper_xy": [float(p.x - err_bed[0]), float(p.y - err_bed[1])],
+        "pen_offset": [float(layout.pen.offset_x + err_bed[0]), float(layout.pen.offset_y + err_bed[1])],
+    }

@@ -367,3 +367,13 @@ dialog::backdrop{background:rgba(0,0,0,.25)}
 .tape{fill:#e7d9a6;fill-opacity:.88;stroke:#c8b77c;stroke-width:.3;pointer-events:none}
 .tapekeep{fill:none;stroke:#b39b4c;stroke-width:.3;stroke-dasharray:1.2 1.2;pointer-events:none}
 .tapelbl{fill:#7d6a2e;font:600 2.8px var(--mono);pointer-events:none}
+
+/* alignment */
+.steps.compact{margin:0 0 4px;font-size:11px;gap:2px}
+.readout{font:600 13px var(--mono);font-variant-numeric:tabular-nums;color:var(--label);height:24px;display:flex;align-items:center}
+.field small{color:var(--label3);font-weight:400}
+.alignresult{margin-top:10px;padding:9px 10px;border-radius:8px;background:var(--fill);font-size:12px;line-height:1.45}
+.alignresult b{font-weight:600}
+.alignresult.ok{background:color-mix(in srgb,var(--green) 14%,transparent)}
+.alignresult.off{background:color-mix(in srgb,#ff9500 16%,transparent)}
+.alignresult .big{display:block;font:600 15px var(--font);margin-bottom:2px}

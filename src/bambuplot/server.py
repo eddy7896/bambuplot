@@ -17,7 +17,7 @@ from pydantic import BaseModel, Field
 from . import effects
 from . import __version__, printer
 from . import projects as proj
-from .calibrate import DEFAULT_PRESSES, press_ladder, smoke_test
+from .calibrate import DEFAULT_PRESSES, alignment_correction, alignment_test, press_ladder, smoke_test
 from .fit import center_area, fit_area
 from .gcode import UnsafeLayout
 from . import mask as masking
@@ -284,10 +284,10 @@ def gcode(req: PlanRequest):
 
 @app.post("/api/calibrate/{kind}", response_class=PlainTextResponse)
 def calibrate(kind: str, layout: Layout):
-    if kind not in ("smoke", "press"):
-        raise HTTPException(404, "Use 'smoke' or 'press'.")
+    if kind not in ("smoke", "press", "align"):
+        raise HTTPException(404, "Use 'smoke', 'press' or 'align'.")
     try:
-        text = smoke_test(layout) if kind == "smoke" else press_ladder(layout)
+        text = {"smoke": smoke_test, "press": press_ladder, "align": alignment_test}[kind](layout)
     except (UnsafeLayout, GcodeSafetyError, ValueError) as err:
         _refuse(err)
     return PlainTextResponse(text, headers={"Content-Disposition": f'attachment; filename="bambuplot-{kind}.gcode"'})
@@ -363,6 +363,8 @@ def _job_text(req: SendRequest) -> tuple[str, str]:
             text, stem = smoke_test(lay), "bambuplot-smoke"
         elif req.kind == "press":
             text, stem = press_ladder(lay), "bambuplot-press"
+        elif req.kind == "align":
+            text, stem = alignment_test(lay), "bambuplot-alignment"
         else:
             text, stem = plan_to_gcode(lay, _plan(req), title=req.effect), f"bambuplot-{req.effect}"
     except (UnsafeLayout, GcodeSafetyError, ValueError) as err:
@@ -538,3 +540,19 @@ def project_source(pid: str):
     mime = "image/svg+xml" if kind == "svg" else {"jpg": "image/jpeg", "jpeg": "image/jpeg",
                                                   "webp": "image/webp"}.get(ext, "image/png")
     return Response(data, media_type=mime)
+
+
+class AlignmentBody(BaseModel):
+    layout: Layout
+    left: float | None = None  # measured: sheet's left edge to the cross, mm
+    front: float | None = None  # measured: sheet's front edge to the cross, mm
+
+
+@app.post("/api/alignment")
+def alignment(body: AlignmentBody):
+    """Expected position of the alignment cross on the sheet and, given measurements, the correction."""
+    c = alignment_correction(body.layout, body.left if body.left is not None else 0.0,
+                             body.front if body.front is not None else 0.0)
+    if body.left is None or body.front is None:
+        return {"expected_left": c["expected_left"], "expected_front": c["expected_front"]}
+    return c

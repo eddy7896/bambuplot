@@ -45,7 +45,8 @@ class Context:
 
 
 # Menu groups, in the order the app lists them.
-GROUPS = ("Trace to vector lines", "Single continuous line", "Hatching & engraving", "Dots", "Vector file")
+GROUPS = ("Trace to vector lines", "Single continuous line", "Hatching & engraving", "Dots", "Vector file",
+          "Calibration")
 
 
 @dataclass
@@ -828,3 +829,46 @@ def squiggle(tone: Tone, ctx: Context, cell, amplitude, wavelength, rounded) -> 
         line = base + (dark * amplitude * cell / 2 * np.sin(phase))[:, None] * nrm
         out += _runs_inside(line, w, h)
     return out
+
+
+# --------------------------------------------------------------- calibration
+
+
+def alignment_target(w: float, h: float, radius: float, ticks: bool) -> Lines:
+    """Circle + crosshair with a mm scale, centered in the area, and an arrow pointing to the back."""
+    radius = max(5.0, min(radius, min(w, h) / 2 - 4))
+    cx, cy = w / 2, h / 2
+    arm = radius + min(8.0, min(w, h) / 2 - radius - 0.5)
+    t = np.linspace(0, 2 * np.pi, max(96, int(2 * np.pi * radius / 0.4)) + 1)
+    out: Lines = [
+        np.column_stack([cx + radius * np.cos(t), cy + radius * np.sin(t)]),
+        np.array([[cx - arm, cy], [cx + arm, cy]]),
+        np.array([[cx, cy - arm], [cx, cy + arm]]),
+    ]
+    tc = np.linspace(0, 2 * np.pi, 25)
+    out.append(np.column_stack([cx + 1.2 * np.cos(tc), cy + 1.2 * np.sin(tc)]))  # small ring marks the center
+    if ticks:
+        for k in range(5, int(arm), 5):
+            half = 1.6 if k % 10 == 0 else 0.9
+            for sgn in (-1, 1):
+                out.append(np.array([[cx + sgn * k, cy - half], [cx + sgn * k, cy + half]]))
+                out.append(np.array([[cx - half, cy + sgn * k], [cx + half, cy + sgn * k]]))
+    # Arrow at the back end of the vertical line: shows which way the sheet was facing.
+    tip = cy + arm
+    out.append(np.array([[cx - 2, tip - 2.6], [cx, tip], [cx + 2, tip - 2.6]]))
+    return out
+
+
+@register(
+    "alignment",
+    "Alignment test",
+    "A circle and crosshair at the center of the drawing area. Measure where it lands on the sheet, "
+    "then use Bed → Alignment to correct the position.",
+    [
+        Param("radius", "Circle radius", "float", 25.0, 10, 60, 1, unit="mm"),
+        Param("ticks", "Millimetre scale", "bool", True, help="Ticks every 5 mm along the cross, longer every 10 mm"),
+    ],
+    group="Calibration",
+)
+def alignment(tone: Tone, ctx: Context, radius, ticks) -> Lines:
+    return alignment_target(tone.w, tone.h, radius, ticks)

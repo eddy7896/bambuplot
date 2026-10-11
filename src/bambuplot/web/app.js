@@ -258,7 +258,7 @@ function renderChecks(){
   b.className='badge '+(bad?'bad':warn?'warn':'ok');
   b.textContent=bad?`${bad} safety problem${bad>1?'s':''}`:warn?`Ready · ${warn} note${warn>1?'s':''}`:'Ready to plot';
   b.title=bad?'Fix these before downloading or sending':'All safety checks pass';
-  $('dlG').disabled=$('dl3mf').disabled=$('dlSmoke').disabled=$('dlPress').disabled=$('sendOpen').disabled=isBad();
+  $('dlG').disabled=$('dl3mf').disabled=$('dlSmoke').disabled=$('dlPress').disabled=$('dlAlign').disabled=$('alDownload').disabled=$('alSend').disabled=$('sendOpen').disabled=isBad();
 }
 function renderStats(){
   const s=plan?.stats;if(!s)return;
@@ -281,6 +281,7 @@ function syncInputs(){
   $('cliplist').innerHTML=L.clips.map((c,i)=>`<li data-i="${i}" class="${sel==='clip:'+i?'sel':''}"><span>Clip ${i+1} · X ${fmt(c.x)} Y ${fmt(c.y)}</span><button type="button" aria-label="Remove clip ${i+1}" data-rm="${i}">×</button></li>`).join('');
   $('aspect').disabled=!job.image;
   const custom=L.paper.size==='custom';$('pwField').hidden=$('phField').hidden=!custom;
+  renderAlignExpected();
   for(const [kind,b] of [['paper',paperBox()],['area',areaBox()]]){
     const d=edgeDist(b);
     for(const side of ['left','front','right','back']){const el=$(`D.${kind}.${side}`);if(el!==document.activeElement)el.value=Math.round(d[side]*10)/10}
@@ -350,7 +351,7 @@ function selectTab(id){
 document.querySelectorAll('.tabs [role=tab]').forEach(t=>t.onclick=()=>selectTab(t.id));
 
 /* effect + params */
-const GROUP_ORDER=['Trace to vector lines','Single continuous line','Hatching & engraving','Dots','Vector file'];
+const GROUP_ORDER=['Trace to vector lines','Single continuous line','Hatching & engraving','Dots','Vector file','Calibration'];
 const srcKind=()=>job.image?.kind==='svg'?'svg':'raster';
 function buildEffects(){
   const kind=srcKind(),usable=effects.filter(e=>(e.source||'raster')===kind);
@@ -447,7 +448,7 @@ $('importLayout').onchange=async e=>{
 };
 
 /* downloads */
-for(const id of ['dlG','dl3mf','dlSmoke','dlPress'])$(id).addEventListener('click',()=>$('dlMenu').hidePopover?.());
+for(const id of ['dlG','dl3mf','dlSmoke','dlPress','dlAlign'])$(id).addEventListener('click',()=>$('dlMenu').hidePopover?.());
 $('dlG').onclick=()=>download('/api/gcode',planBody(),`bambuplot-${job.effect}.gcode`);
 $('dl3mf').onclick=async()=>{
   $('problems').hidden=true;
@@ -461,6 +462,8 @@ $('dl3mf').onclick=async()=>{
 };
 $('dlSmoke').onclick=()=>download('/api/calibrate/smoke',L,'bambuplot-smoke.gcode');
 $('dlPress').onclick=()=>download('/api/calibrate/press',L,'bambuplot-press.gcode');
+$('dlAlign').onclick=$('alDownload').onclick=()=>download('/api/calibrate/align',L,'bambuplot-alignment.gcode');
+$('alSend').onclick=()=>{$('sendOpen').click();$('send-kind').value='align'};
 
 /* ---------- dragging ---------- */
 function toMM(e){const pt=svg.createSVGPoint();pt.x=e.clientX;pt.y=e.clientY;const q=pt.matrixTransform(svg.getScreenCTM().inverse());return {x:q.x+V.x0,y:V.y1-q.y}}
@@ -829,6 +832,51 @@ edDraw.addEventListener('pointerup',()=>{
   }else maskOp({op:'paint',smart:$('edSmart').checked,strokes:[{mode:dr.tool==='keep'?'keep':'erase',points:dr.pts,size:+$('edSize').value/ED.dw}]});
 });
 
+/* ---------- alignment test ---------- */
+/* Where the cross should land, measured from the sheet's own left and front edges. */
+function alignExpected(){
+  const p=paperBox(),[pcx,pcy]=centerOf(p),[acx,acy]=centerOf(L.area);
+  const [lx,ly]=rotPt(acx-pcx,acy-pcy,-p.rot);
+  return [lx+p.w/2,ly+p.h/2];
+}
+let alT=0,alLast=null;
+function renderAlignExpected(){
+  const [l,f]=alignExpected();$('alExpL').textContent=`${l.toFixed(1)} mm`;$('alExpF').textContent=`${f.toFixed(1)} mm`;
+}
+function dirWords(v,pos,neg){return `${Math.abs(v).toFixed(1)} mm ${v>0?pos:neg}`}
+async function updateAlignment(){
+  const l=parseFloat($('alMeasL').value),f=parseFloat($('alMeasF').value),box=$('alResult');
+  if(!isFinite(l)||!isFinite(f)){box.hidden=true;$('alPaper').disabled=$('alPen').disabled=true;alLast=null;return}
+  try{
+    const c=await (await post('/api/alignment',{layout:L,left:l,front:f})).json();alLast=c;
+    const err=Math.hypot(c.error_x,c.error_y),ok=err<0.3;
+    let html=ok?`<span class="big">On target</span>The cross landed within ${err.toFixed(1)} mm of where it should. No correction needed.`
+      :`<span class="big">${dirWords(c.error_bed_x,'right','left')}, ${dirWords(c.error_bed_y,'toward the back','toward the front')}</span>`+
+       `The drawing landed that far from where it should on the sheet. Either <b>move the sheet ${dirWords(c.move_sheet[0],'right','left')} and ${dirWords(c.move_sheet[1],'back','forward')}</b> next time, or apply a fix below.`;
+    // Optional size check: the circle's outside size is its diameter plus the pen width.
+    // The Download/Send test always uses a 25 mm circle; an alignment project uses its own setting.
+    const r=job.effect==='alignment'?+((job.params.alignment||{}).radius??25):25,want=2*r+L.pen.width_mm,sz=[];
+    for(const [id,axis] of [['alW','X'],['alH','Y']]){
+      const m=parseFloat($(id).value);if(!isFinite(m))continue;
+      const pct=(m/want-1)*100;
+      sz.push(Math.abs(pct)<0.4?`${axis} size is right (${m.toFixed(1)} of ${want.toFixed(1)} mm).`:`${axis} is ${Math.abs(pct).toFixed(1)}% too ${pct>0?'long':'short'} (${m.toFixed(1)} vs ${want.toFixed(1)} mm): check the belt tension on that axis.`);
+    }
+    if(sz.length)html+=`<br>${sz.join(' ')}`;
+    box.innerHTML=html;box.className='alignresult '+(ok?'ok':'off');box.hidden=false;
+    $('alPaper').disabled=$('alPen').disabled=ok;
+  }catch(_){box.hidden=false;box.className='alignresult';box.textContent='Could not reach the BambuPlot server.'}
+}
+for(const id of ['alMeasL','alMeasF','alW','alH'])$(id).addEventListener('input',()=>{clearTimeout(alT);alT=setTimeout(updateAlignment,200)});
+function clearAlign(msg){for(const id of ['alMeasL','alMeasF','alW','alH'])$(id).value='';const b=$('alResult');b.className='alignresult ok';b.innerHTML=msg;b.hidden=false;$('alPaper').disabled=$('alPen').disabled=true;alLast=null}
+$('alPaper').onclick=()=>{
+  if(!alLast)return;[L.paper.x,L.paper.y]=alLast.paper_xy.map(v=>Math.round(v*100)/100);sel='paper';changed(['paper']);
+  clearAlign('<span class="big">Paper position updated</span>The layout now matches where the sheet really is. If the safety badge turns red, press <b>Fit to Free Space</b> or <b>Center</b> under Drawing Area. Then plot the test again to confirm.');
+};
+$('alPen').onclick=()=>{
+  if(!alLast)return;[L.pen.offset_x,L.pen.offset_y]=alLast.pen_offset.map(v=>Math.round(v*100)/100);changed(['pen.offset_x']);
+  clearAlign(`<span class="big">Pen offset corrected</span>Now X ${fmt(L.pen.offset_x)} mm, Y ${fmt(L.pen.offset_y)} mm. Plot the test again to confirm.`);
+};
+
 /* ---------- slider fill (blue up to the thumb, like macOS) ---------- */
 function fillRange(el){const min=+el.min||0,max=+el.max||100,v=+el.value;el.style.setProperty('--p',`${((v-min)/(max-min||1))*100}%`)}
 const fillAll=()=>document.querySelectorAll('input[type=range]').forEach(fillRange);
@@ -916,7 +964,8 @@ async function openProject(pid){
   document.querySelector('.app').hidden=false;$('dashboard').hidden=true;
   buildEffects();render();renderThumb();refreshChecks();schedulePlan(0);loadAI();
   if(job.image?.sel?.has_mask)applySel(job.image.sel);
-  selectTab(job.image?'tab-effect':'tab-picture');
+  selectTab(job.effect==='alignment'?'tab-setup':job.image?'tab-effect':'tab-picture');
+  $('alignGroup').open=job.effect==='alignment';for(const id of ['alMeasL','alMeasF','alW','alH'])$(id).value='';$('alResult').hidden=true;
   currentProject=pid;dirty=false;setDocState(`Saved · ${docInfo()}`);
   if(d.warning)showProblems(d.warning);
 }
@@ -927,6 +976,12 @@ function route(){
 window.addEventListener('hashchange',route);
 $('toProjects').onclick=()=>{location.hash='#/'};
 $('projNew').onclick=$('projNewEmpty').onclick=()=>newProject();
+$('projAlign').onclick=async()=>{
+  let layout=null;const last=DASH.list[0];
+  if(last){try{layout=(await (await fetch(`/api/projects/${last.id}`)).json()).state?.layout||null}catch(_){}}
+  const r=await post('/api/projects',{name:'Alignment test',state:{layout:layout||DEF.layout,effect:'alignment',params:{},prep:DEF.prep}});
+  const p=await r.json();location.hash=`#/p/${p.id}`;
+};
 $('projSearch').oninput=e=>{DASH.query=e.target.value;renderDashboard()};
 document.querySelectorAll('#projSort button').forEach(b=>b.onclick=()=>{
   DASH.sort=b.dataset.sort;document.querySelectorAll('#projSort button').forEach(x=>x.setAttribute('aria-pressed',x===b));renderDashboard();
