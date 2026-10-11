@@ -67,6 +67,16 @@ The Artwork tab accepts PNG, JPG and SVG files.
 | Centerline trace | Sketches, line art, handwriting | One stroke down the middle of each drawn line, instead of two outlines. |
 | Contour lines | Photos, portraits | Lines of equal brightness, like a topographic map. |
 
+### Border and signature
+
+These are in **Effect → Finishing** and work with every effect, including SVG files.
+
+- **Border around the area:** draws a frame around the drawing area. **Border inset** moves it inward.
+- **Signature:** adds your own signature to the plot.
+  - **Making it:** draw it once on the signature pad with a mouse, trackpad or stylus, or use **Import from Picture…** to trace a photo of your signature on white paper. It's saved for every project in `~/.config/bambuplot/signature.json`.
+  - **Placing it:** choose the position (bottom right, center or left; top right or left), height and margin. If there's a border, the margin is measured from the border.
+  - **Clear art behind it** removes any artwork under the signature so it stays readable.
+
 ### Subject selection and background removal
 
 For PNG and JPG pictures, the Source panel has **Remove background** and **Select subject…**. Removed areas become paper white, so no effect puts ink there. The non-AI tools run locally with OpenCV and need no downloads.
@@ -292,6 +302,7 @@ Every file passes through `safety.validate` before it is written. It is an allow
 | `calibrate.py` | Smoke test and press ladder |
 | `package.py` | Wraps G-code in a `.gcode.3mf` from a Bambu Studio template |
 | `printer.py` | LAN Only upload (FTPS), start/status (MQTT), Bambu Connect hand-off |
+| `extras.py` | Border and signature: storage, tracing from a photo, placement, clearing art behind it |
 | `projects.py` | Projects on disk: state, source file, selection, thumbnail |
 | `server.py` / `web/` | FastAPI backend and the browser UI |
 

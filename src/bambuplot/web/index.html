@@ -167,6 +167,21 @@
           <h2>Settings</h2>
           <div class="params" id="params"></div>
         </section>
+        <section class="group">
+          <h2>Finishing</h2>
+          <div class="srow sw"><label for="X.border">Border around the area</label><input type="checkbox" class="switch" id="X.border"></div>
+          <div class="srow" id="borderOpts" title="How far inside the drawing area's edge the border runs"><label for="X.border_inset">Border inset</label><input type="range" id="X.border_inset" min="0" max="15" step="0.5" data-unit="mm"><output id="X.border_inset.out"></output></div>
+          <div class="srow sw"><label for="X.signature">Signature</label><input type="checkbox" class="switch" id="X.signature"></div>
+          <div id="sigOpts">
+            <div class="sigprev" id="sigPrev"></div>
+            <div class="btnrow tight"><button class="btn small" type="button" id="sigEdit">Draw Signature…</button></div>
+            <div class="srow sel"><label for="X.sig_corner">Position</label>
+              <select id="X.sig_corner" data-kind="text"><option value="br">Bottom right</option><option value="bc">Bottom center</option><option value="bl">Bottom left</option><option value="tr">Top right</option><option value="tl">Top left</option></select></div>
+            <div class="srow"><label for="X.sig_height">Height</label><input type="range" id="X.sig_height" min="3" max="40" step="0.5" data-unit="mm"><output id="X.sig_height.out"></output></div>
+            <div class="srow" title="Distance from the area's edge (inside the border, if there is one)"><label for="X.sig_margin">Margin</label><input type="range" id="X.sig_margin" min="0" max="20" step="0.5" data-unit="mm"><output id="X.sig_margin.out"></output></div>
+            <div class="srow sw" title="Remove any artwork under the signature so it stays readable"><label for="X.sig_clear">Clear art behind it</label><input type="checkbox" class="switch" id="X.sig_clear"></div>
+          </div>
+        </section>
       </div>
 
       <!-- Bed -->
@@ -422,6 +437,25 @@
       <button class="btn" type="button" id="send-connect" disabled title="Sends through your Bambu account (works away from home)">Open in Bambu Connect</button>
       <button class="btn" type="button" id="send-upload" title="Uploads over your network; start it on the printer">Upload Only</button>
       <button class="btn accent" type="button" id="send-start" disabled>Upload and Start</button>
+    </div>
+  </div>
+</dialog>
+
+<!-- ============================== signature pad ============================== -->
+<dialog id="sigSheet" class="sheet sigsheet" aria-labelledby="sigTitle">
+  <div class="sigwrap">
+    <h2 id="sigTitle">Your Signature</h2>
+    <p class="foot">Sign in the box with your mouse, trackpad or a stylus, or import a photo of your signature on white paper. It's saved for all your projects.</p>
+    <div class="padbox"><canvas id="sigPad" aria-label="Signature pad"></canvas><span class="padline"></span></div>
+    <p class="msg" id="sigMsg" role="status"></p>
+    <div class="sheet-buttons">
+      <button class="btn" type="button" id="sigClear">Clear</button>
+      <button class="btn" type="button" id="sigUndo">Undo Stroke</button>
+      <label class="btn" for="sigFile">Import from Picture…</label>
+      <input type="file" id="sigFile" accept="image/png,image/jpeg,image/webp" hidden>
+      <span class="spacer"></span>
+      <button class="btn" type="button" id="sigCancel">Cancel</button>
+      <button class="btn accent" type="button" id="sigSave">Save Signature</button>
     </div>
   </div>
 </dialog>

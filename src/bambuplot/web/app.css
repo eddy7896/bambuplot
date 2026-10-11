@@ -384,3 +384,15 @@ dialog::backdrop{background:rgba(0,0,0,.25)}
 .unitsrow .segmented{width:150px}
 .field>span[data-unit]::after{content:" · " attr(data-unit);color:var(--label3)}
 .group h2 small.shared{font-weight:400;color:var(--label3);margin-left:4px}
+
+/* finishing: signature */
+.sigprev{height:52px;margin:4px 0 2px;border-radius:8px;background:var(--paper);box-shadow:var(--shadow);display:flex;align-items:center;justify-content:center;color:var(--paper-ink);font-size:11px;overflow:hidden}
+.sigprev svg{height:40px;max-width:92%}
+.sigprev path{fill:none;stroke:var(--ink-line);stroke-width:2;stroke-linecap:round;stroke-linejoin:round;vector-effect:non-scaling-stroke}
+.sigsheet{width:min(720px,94vw)}
+.sigwrap{padding:18px 20px 16px}
+.sigwrap h2{font-size:15px;font-weight:600;margin-bottom:4px}
+.padbox{position:relative;margin-top:12px;height:240px;border-radius:10px;background:#fbfbf7;box-shadow:var(--shadow)}
+#sigPad{position:absolute;inset:0;width:100%;height:100%;touch-action:none;cursor:crosshair;border-radius:10px}
+.padline{position:absolute;left:24px;right:24px;bottom:56px;border-bottom:1px solid #d8d6cc;pointer-events:none}
+.padline::before{content:"×";position:absolute;left:-2px;bottom:2px;color:#b9b6a8;font-size:15px}

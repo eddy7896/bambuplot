@@ -16,6 +16,7 @@ from pydantic import BaseModel, Field
 
 from . import effects
 from . import __version__, printer
+from . import extras as extras_mod
 from . import machine as mach
 from . import projects as proj
 from .calibrate import DEFAULT_PRESSES, alignment_correction, alignment_test, press_ladder, smoke_test
@@ -63,6 +64,7 @@ class PlanRequest(BaseModel):
     prep: Prep = Field(default_factory=Prep)
     image_id: str | None = None
     seed: int = 0
+    extras: extras_mod.Extras = Field(default_factory=extras_mod.Extras)
 
 
 def _remember(store: OrderedDict, key: str, value, limit: int):
@@ -100,6 +102,8 @@ def _plan(req: PlanRequest) -> Plan:
         "touch": lay.touch_off,
         "seed": req.seed,
         "mask": mask_version,
+        "extras": req.extras.model_dump(),
+        "signature": extras_mod.info()["version"] if req.extras.signature else None,
     }, sort_keys=True).encode()).hexdigest()
     if key in _plans:
         _plans.move_to_end(key)
@@ -108,7 +112,9 @@ def _plan(req: PlanRequest) -> Plan:
         if mask_version is not None:
             full = masking.full_mask(src.state, gray.shape)
         try:
-            plan = make_plan(lay, req.effect, req.params, req.prep, gray, req.seed, svg=svg, mask=full)
+            sig = extras_mod.load() if req.extras.signature else None
+            plan = make_plan(lay, req.effect, req.params, req.prep, gray, req.seed, svg=svg, mask=full,
+                             extras=req.extras, signature=sig)
         except (ValueError, SvgError) as err:
             raise HTTPException(422, str(err))
         _remember(_plans, key, plan, MAX_PLANS)
@@ -140,6 +146,7 @@ def defaults():
     m = mach.load()
     layout = Layout(pen=m.pen, z=m.z, feed=m.feed)  # new projects start with this printer's holder settings
     return {"layout": layout.model_dump(), "prep": Prep().model_dump(), "machine": m.model_dump(),
+            "extras": extras_mod.Extras().model_dump(),
             "paper_sizes": [{"key": k, "label": PAPER_LABELS[k], "w": w, "h": h} for k, (w, h) in PAPER_SIZES.items()],
             "bed": [180, 180]}
 
@@ -420,6 +427,7 @@ class ProjectState(BaseModel):
     params: dict = Field(default_factory=dict)  # per effect: {effect: {param: value}}
     prep: Prep = Field(default_factory=Prep)
     aiModel: str | None = None
+    extras: extras_mod.Extras = Field(default_factory=extras_mod.Extras)
 
 
 class ProjectSave(BaseModel):
@@ -482,7 +490,8 @@ def save_project(pid: str, body: ProjectSave):
         try:  # the dashboard thumbnail is a small drawing of the current plot
             req = PlanRequest(layout=body.state.layout, effect=body.state.effect,
                               params=body.state.params.get(body.state.effect, {}), prep=body.state.prep,
-                              image_id=body.image_id if body.image_id in _images else None)
+                              image_id=body.image_id if body.image_id in _images else None,
+                              extras=body.state.extras)
             plan = _plan(req)
             proj.render_thumb(pid, plan.lines, req.layout.area.w, req.layout.area.h, req.layout.pen.width_mm)
             summary["has_thumb"] = True
@@ -572,3 +581,42 @@ def get_machine():
 @app.put("/api/machine")
 def put_machine(body: mach.Machine):
     return mach.save(body).model_dump()
+
+
+# ------------------------------------------------------------------ signature (shared by all projects)
+
+
+class SignatureBody(BaseModel):
+    strokes: list[list[list[float]]]
+
+
+@app.get("/api/signature")
+def get_signature():
+    return extras_mod.info()
+
+
+@app.put("/api/signature")
+def put_signature(body: SignatureBody):
+    try:
+        return extras_mod.save(body.strokes)
+    except ValueError as err:
+        raise HTTPException(422, str(err))
+
+
+@app.delete("/api/signature")
+def delete_signature():
+    extras_mod.delete()
+    return {"has": False, "strokes": [], "version": None}
+
+
+@app.post("/api/signature/trace")
+async def trace_signature(file: UploadFile = File(...)):
+    data = await file.read()
+    if len(data) > MAX_UPLOAD:
+        raise HTTPException(413, "Pictures must be under 25 MB.")
+    try:
+        return {"strokes": extras_mod.trace_image(data)}
+    except ValueError as err:
+        raise HTTPException(422, str(err))
+    except Exception:
+        raise HTTPException(422, "That file isn't a picture BambuPlot can read. Try a JPG or PNG.")

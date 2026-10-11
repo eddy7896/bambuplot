@@ -2,7 +2,7 @@ const $=id=>document.getElementById(id);
 let PAPERS={A5:[148,210],A6:[105,148]}; // replaced by the server's list at boot
 const STORE='bambuplot.v1';
 const PLAN_KEYS=new Set(['area.w','area.h','pen.width_mm','touch_off']);
-let L=null, DEF=null, effects=[], job={effect:'waves',params:{},prep:{},image:null};
+let L=null, DEF=null, effects=[], job={effect:'waves',params:{},prep:{},image:null,extras:{}};
 let plan=null, checks=[], sel='area', drag=null, V=null, snap=true;
 let drawing=null, showDims=true; // draw-on-plate tool state; edge dimensions on/off
 let lineStr=[], travelStr=[], totalPts=0, planSeq=0;
@@ -66,7 +66,7 @@ function save(){
   dirty=true;setDocState(`Edited · ${docInfo()}`);
   clearTimeout(saveT);saveT=setTimeout(saveNow,900);
 }
-const projectBody=()=>({name:$('projName').value,state:{layout:L,effect:job.effect,params:job.params,prep:job.prep,aiModel:job.aiModel},image_id:job.image?.id||null});
+const projectBody=()=>({name:$('projName').value,state:{layout:L,effect:job.effect,params:job.params,prep:job.prep,aiModel:job.aiModel,extras:job.extras},image_id:job.image?.id||null});
 async function saveNow(){
   clearTimeout(saveT);
   if(!currentProject||!dirty)return;
@@ -85,7 +85,7 @@ window.addEventListener('beforeunload',()=>{
 
 /* ---------- server calls ---------- */
 const post=(url,body)=>fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
-const planBody=()=>({layout:L,effect:job.effect,params:job.params[job.effect]||{},prep:job.prep,image_id:job.image?.id||null});
+const planBody=()=>({layout:L,effect:job.effect,params:job.params[job.effect]||{},prep:job.prep,image_id:job.image?.id||null,extras:job.extras});
 function setStatus(t,err){const s=$('status');s.textContent=t;s.classList.toggle('err',!!err)}
 
 let planT=0;
@@ -277,7 +277,7 @@ function renderStats(){
   $('nInk').textContent=`${s.draw_m} m`;$('nLifts').textContent=s.pen_lifts.toLocaleString();
   $('nTravel').textContent=`${s.travel_m} m`;$('nTime').textContent=s.minutes<60?`${Math.max(1,Math.round(s.minutes))} min`:`${Math.floor(s.minutes/60)} h ${Math.round(s.minutes%60)} m`;
 }
-function render(){if(!drag)computeView();renderUnder();renderOver();placeInk();syncInputs();fillAll()}
+function render(){if(!drag)computeView();renderUnder();renderOver();placeInk();syncInputs();syncExtras();fillAll()}
 
 /* ---------- inputs ---------- */
 const getP=(o,p)=>p.split('.').reduce((a,k)=>a?.[k],o);
@@ -851,6 +851,89 @@ edDraw.addEventListener('pointerup',()=>{
   }else maskOp({op:'paint',smart:$('edSmart').checked,strokes:[{mode:dr.tool==='keep'?'keep':'erase',points:dr.pts,size:+$('edSize').value/ED.dw}]});
 });
 
+/* ---------- finishing: border and signature ---------- */
+const extrasInputs=[...document.querySelectorAll('input[id^="X."],select[id^="X."]')];
+function syncExtras(){
+  for(const el of extrasInputs){
+    const k=el.id.slice(2),v=job.extras[k];
+    if(el.type==='checkbox')el.checked=!!v;else if(el!==document.activeElement)el.value=v;
+    if(el.type==='range'){const o=$(el.id+'.out');if(o)o.textContent=fmtVal(v,el.step,el.dataset.unit||'')}
+  }
+  $('borderOpts').hidden=!job.extras.border;$('sigOpts').hidden=!job.extras.signature;
+}
+for(const el of extrasInputs)el.addEventListener('input',()=>{
+  const k=el.id.slice(2);let v=el.type==='checkbox'?el.checked:el.dataset.kind==='text'?el.value:parseFloat(el.value);
+  if(el.type==='range'&&!isFinite(v))return;
+  job.extras[k]=v;syncExtras();save();schedulePlan(el.type==='range'?350:0);
+  if(k==='signature'&&v&&!SIG.strokes.length)openSignature();
+});
+
+/* Signature: drawn once, shared by all projects. Strokes are stored normalized, y up. */
+const SIG={strokes:[],pad:[],drawing:null};
+function sigPath(strokes,flip=true){
+  const pts=strokes.flat();if(!pts.length)return {d:'',vb:'0 0 1 1'};
+  const xs=pts.map(p=>p[0]),ys=pts.map(p=>p[1]),x0=Math.min(...xs),x1=Math.max(...xs),y0=Math.min(...ys),y1=Math.max(...ys);
+  const d=strokes.map(s=>'M'+s.map(([x,y])=>`${(x-x0).toFixed(3)} ${(flip?y1-y:y-y0).toFixed(3)}`).join('L')).join('');
+  return {d,vb:`-0.05 -0.05 ${(x1-x0+.1).toFixed(3)} ${(y1-y0+.1).toFixed(3)}`};
+}
+function renderSigPreview(){
+  const box=$('sigPrev');
+  if(!SIG.strokes.length){box.innerHTML='No signature yet. Press Draw Signature.';$('sigEdit').textContent='Draw Signature…';return}
+  const {d,vb}=sigPath(SIG.strokes);box.innerHTML=`<svg viewBox="${vb}" preserveAspectRatio="xMidYMid meet"><path d="${d}"/></svg>`;
+  $('sigEdit').textContent='Edit Signature…';
+}
+async function loadSignature(){try{SIG.strokes=(await (await fetch('/api/signature')).json()).strokes||[]}catch(_){SIG.strokes=[]}renderSigPreview()}
+function padCanvas(){const c=$('sigPad'),r=c.getBoundingClientRect(),dpr=devicePixelRatio||1;c.width=r.width*dpr;c.height=r.height*dpr;const g=c.getContext('2d');g.setTransform(dpr,0,0,dpr,0,0);return {c,g,w:r.width,h:r.height}}
+function drawPad(){
+  const {g,w,h}=padCanvas();g.clearRect(0,0,w,h);g.lineCap=g.lineJoin='round';g.lineWidth=2.6;g.strokeStyle='#1c2c8a';
+  for(const s of SIG.pad.concat(SIG.drawing?[SIG.drawing]:[])){
+    g.beginPath();s.forEach(([x,y],i)=>i?g.lineTo(x,y):g.moveTo(x,y));if(s.length===1)g.lineTo(s[0][0]+.1,s[0][1]);g.stroke();
+  }
+}
+/* Fit saved (normalized, y-up) strokes onto the pad. */
+function strokesToPad(strokes){
+  const {w,h}=padCanvas(),pts=strokes.flat();if(!pts.length)return [];
+  const xs=pts.map(p=>p[0]),ys=pts.map(p=>p[1]),sw=Math.max(...xs)-Math.min(...xs),sh=Math.max(...ys)-Math.min(...ys)||1;
+  const s=Math.min((w-60)/(sw||1),(h-90)/sh),ox=(w-sw*s)/2-Math.min(...xs)*s,base=h-56;
+  return strokes.map(st=>st.map(([x,y])=>[ox+x*s,base-(y-Math.min(...ys))*s]));
+}
+function openSignature(){
+  $('sigSheet').showModal();msg('sigMsg','');
+  requestAnimationFrame(()=>{SIG.pad=strokesToPad(SIG.strokes);drawPad()});
+}
+$('sigEdit').onclick=openSignature;
+$('sigCancel').onclick=()=>$('sigSheet').close();
+$('sigClear').onclick=()=>{SIG.pad=[];drawPad()};
+$('sigUndo').onclick=()=>{SIG.pad.pop();drawPad()};
+const pad=$('sigPad');
+pad.addEventListener('pointerdown',e=>{const r=pad.getBoundingClientRect();pad.setPointerCapture(e.pointerId);SIG.drawing=[[e.clientX-r.left,e.clientY-r.top]];drawPad()});
+pad.addEventListener('pointermove',e=>{
+  if(!SIG.drawing)return;const r=pad.getBoundingClientRect(),p=[e.clientX-r.left,e.clientY-r.top],l=SIG.drawing[SIG.drawing.length-1];
+  if(Math.hypot(p[0]-l[0],p[1]-l[1])>1.2){SIG.drawing.push(p);drawPad()}
+});
+const padEnd=()=>{if(SIG.drawing){SIG.pad.push(SIG.drawing);SIG.drawing=null;drawPad()}};
+pad.addEventListener('pointerup',padEnd);pad.addEventListener('pointercancel',padEnd);
+/* One pass of corner cutting so mouse-drawn strokes plot smoothly. */
+const smoothStroke=s=>s.length<3?s:[s[0],...s.slice(0,-1).flatMap((p,i)=>{const q=s[i+1];return [[.75*p[0]+.25*q[0],.75*p[1]+.25*q[1]],[.25*p[0]+.75*q[0],.25*p[1]+.75*q[1]]]}),s[s.length-1]];
+$('sigSave').onclick=async()=>{
+  if(!SIG.pad.length){msg('sigMsg','Sign in the box first.','err');return}
+  const strokes=SIG.pad.map(smoothStroke).map(s=>s.map(([x,y])=>[x,-y])); // canvas y points down; stored y points up
+  const r=await fetch('/api/signature',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({strokes})});
+  const d=await r.json();if(!r.ok){msg('sigMsg',typeof d.detail==='string'?d.detail:'Could not save the signature.','err');return}
+  SIG.strokes=d.strokes;renderSigPreview();$('sigSheet').close();
+  if(!job.extras.signature){job.extras.signature=true;syncExtras();save()}
+  schedulePlan(0);setStatus('Signature saved.');
+};
+$('sigFile').onchange=async e=>{
+  const f=e.target.files[0];e.target.value='';if(!f)return;msg('sigMsg','Tracing your signature…');
+  const fd=new FormData();fd.append('file',f);
+  try{
+    const r=await fetch('/api/signature/trace',{method:'POST',body:fd}),d=await r.json();
+    if(!r.ok){msg('sigMsg',typeof d.detail==='string'?d.detail:'Could not trace that picture.','err');return}
+    SIG.pad=strokesToPad(d.strokes);drawPad();msg('sigMsg','Traced. Check it, tidy up with Undo or draw more, then Save.','ok');
+  }catch(_){msg('sigMsg','Could not reach the BambuPlot server.','err')}
+};
+
 /* ---------- units ---------- */
 function paperOptions(){
   if(!DEF?.paper_sizes)return;
@@ -939,7 +1022,7 @@ for(const ev of ['dragenter','dragover'])document.addEventListener(ev,e=>{if([..
 for(const ev of ['dragleave','drop'])document.addEventListener(ev,()=>canvasEl.classList.remove('dropping'));
 document.addEventListener('drop',e=>{const f=e.dataTransfer?.files?.[0];if(f){e.preventDefault();openFile(f)}});
 document.addEventListener('keydown',e=>{
-  if(!(e.metaKey||e.ctrlKey)||$('editor').open||$('sendSheet').open||!$('dashboard').hidden)return;
+  if(!(e.metaKey||e.ctrlKey)||$('editor').open||$('sendSheet').open||$('sigSheet').open||!$('dashboard').hidden)return;
   const k=e.key.toLowerCase();
   if(k==='o'){e.preventDefault();$('file').click()}
   else if(k==='s'){e.preventDefault();saveNow()}
@@ -1004,6 +1087,7 @@ async function openProject(pid){
   job.effect=effects.some(e=>e.name===st.effect)?st.effect:'waves';
   job.params=(st.params&&typeof st.params==='object')?st.params:{};
   job.aiModel=typeof st.aiModel==='string'?st.aiModel:null;
+  job.extras=deepMerge(DEF.extras||{},st.extras);
   if(job.image?.url)URL.revokeObjectURL(job.image.url);
   job.image=null;plan=null;$('ink').setAttribute('d','');$('travel').setAttribute('d','');
   if(d.image){
@@ -1015,7 +1099,7 @@ async function openProject(pid){
   }
   $('projName').value=d.name;document.title=`${d.name} · BambuPlot`;
   document.querySelector('.app').hidden=false;$('dashboard').hidden=true;
-  buildEffects();render();renderThumb();refreshChecks();schedulePlan(0);loadAI();
+  buildEffects();render();renderThumb();refreshChecks();schedulePlan(0);loadAI();loadSignature();
   if(job.image?.sel?.has_mask)applySel(job.image.sel);
   selectTab(job.effect==='alignment'?'tab-setup':job.image?'tab-effect':'tab-picture');
   $('alignGroup').open=job.effect==='alignment';for(const id of ['alMeasL','alMeasF','alW','alH'])$(id).value='';$('alResult').hidden=true;

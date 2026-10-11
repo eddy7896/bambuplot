@@ -12,6 +12,8 @@ from .image import Prep, prepare
 from .layout import Layout
 from .paths import clamp, merge, order_paths, rdp, stats
 from .svgin import SvgArt
+from .extras import Extras
+from .extras import apply as apply_extras
 
 SIMPLIFY_TOL = 0.05  # mm; well below any pen width
 
@@ -39,6 +41,8 @@ def make_plan(
     seed: int = 0,
     svg: SvgArt | None = None,
     mask: np.ndarray | None = None,
+    extras: Extras | None = None,
+    signature: list[np.ndarray] | None = None,
 ) -> Plan:
     a = layout.area
     eff = effects.EFFECTS.get(effect)
@@ -55,6 +59,7 @@ def make_plan(
     ctx = effects.Context(pen_width=layout.pen.width_mm, seed=seed, svg=svg)
     raw = effects.run(effect, tone, params, ctx)
     lines = [rdp(l, SIMPLIFY_TOL) for l in clamp(raw, a.w, a.h)]
+    lines = clamp(apply_extras(lines, a.w, a.h, extras, signature, layout.pen.width_mm), a.w, a.h)
     start = touch_in_area(layout)
     lines = order_paths(lines, start)
     lines = merge(lines, layout.pen.width_mm * 0.5)
