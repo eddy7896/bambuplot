@@ -34,7 +34,19 @@ const corners=b=>[[0,0],[b.w,0],[b.w,b.h],[0,b.h]].map(([u,v])=>toWorld(b,u,v));
 const clipRect=c=>R(c.x,c.y,L.clip_w,L.clip_d);
 const keepouts=()=>L.clips.map(c=>grow(clipRect(c),L.clip_keep_out));
 const reach=()=>R(L.pen.offset_x,L.pen.offset_y,180,180);
-const snapv=v=>snap?Math.round(v):Math.round(v*10)/10;
+/* Measurement units for page and paper lengths. Everything is stored in mm; this is display and input only. */
+const UNITS={
+  // dec: decimals in labels; inDec: decimals in input fields
+  mm:{f:1,dec:1,inDec:2,step:0.5,snap:1,snapLabel:'1 mm'},
+  cm:{f:10,dec:2,inDec:2,step:0.05,snap:1,snapLabel:'1 mm'},
+  in:{f:25.4,dec:3,inDec:3,step:0.01,snap:25.4/16,snapLabel:'1/16 in'},
+};
+let unit=(()=>{try{const u=localStorage.getItem('bambuplot.units');return UNITS[u]?u:'mm'}catch(_){return 'mm'}})();
+const toU=mm=>mm/UNITS[unit].f, fromU=v=>v*UNITS[unit].f;
+const fmtU=mm=>String(+toU(mm).toFixed(UNITS[unit].dec));
+const fmtLen=mm=>`${fmtU(mm)} ${unit}`;
+const fmtSize=(w,h)=>`${fmtU(w)} × ${fmtU(h)} ${unit}`;
+const snapv=v=>snap?Math.round(v/UNITS[unit].snap)*UNITS[unit].snap:Math.round(v*10)/10;
 const fmt=n=>String(Math.round(n*100)/100);
 function localTouch(){const a=L.area;return {fl:[0,0],fr:[a.w,0],bl:[0,a.h],br:[a.w,a.h],c:[a.w/2,a.h/2]}[L.touch_off]}
 
@@ -104,7 +116,7 @@ async function fitRequest(mode){
     if(!r.ok){setStatus(typeof d.detail==='string'?d.detail:'No safe spot found.',true);return}
     const resized=d.w!==L.area.w||d.h!==L.area.h;
     L.area={...L.area,x:Math.round(d.x*10)/10,y:Math.round(d.y*10)/10,w:d.w,h:d.h};
-    changed(resized?['area.w']:['area.x']);setStatus(mode==='fit'?`Fitted ${fmt(d.w)} × ${fmt(d.h)} mm`:'Centered');
+    changed(resized?['area.w']:['area.x']);setStatus(mode==='fit'?`Fitted ${fmtSize(d.w,d.h)}`:'Centered');
   }catch(_){setStatus('Could not reach the BambuPlot server.',true)}
 }
 async function download(url,body,name){
@@ -149,7 +161,7 @@ function renderUnder(){
   h+=`<g ${rotAttr(p)}><rect class="paper${sel==='paper'?' sel':''}" data-drag="paper" ${rA(pr)}></rect></g>`;
   h+=`<g mask="url(#offbed)"><g ${rotAttr(p)}><rect class="overhang" ${rA(pr)}></rect></g></g>`;
   h+=`<g ${rotAttr(p)}><rect class="pmargin" ${rA(R(p.x+m,p.y+m,p.w-2*m,p.h-2*m))}></rect>`;
-  h+=`<text class="paperlbl" x="${X(p.x+2)}" y="${Y(y2(pr)-4.5)}">${L.paper.size==='custom'?'Custom':esc(L.paper.size)} ${fmt(p.w)} × ${fmt(p.h)}${p.rot?` · ${fmt(p.rot)}°`:''}</text></g>`;
+  h+=`<text class="paperlbl" x="${X(p.x+2)}" y="${Y(y2(pr)-4.5)}">${L.paper.size==='custom'?'Custom':esc(L.paper.size)} ${fmtSize(p.w,p.h)}${p.rot?` · ${fmt(p.rot)}°`:''}</text></g>`;
   h+=tapeSVG(p);
   keepouts().forEach(k=>h+=`<rect class="keep" ${rA(k)}></rect>`);
   $('under').innerHTML=h;
@@ -161,7 +173,7 @@ function dimsSVG(b){
     const over=val<-0.05,cls=over?' over':'',t=1.4;
     const vert=Math.abs(x1-x2)<1e-6,tick=vert?`M${X(x1-t)} ${Y(y1)}H${X(x1+t)}M${X(x2-t)} ${Y(y2)}H${X(x2+t)}`:`M${X(x1)} ${Y(y1-t)}V${Y(y1+t)}M${X(x2)} ${Y(y2-t)}V${Y(y2+t)}`;
     h+=`<path class="dimline${cls}" d="M${X(x1)} ${Y(y1)}L${X(x2)} ${Y(y2)}${tick}"></path>`;
-    h+=`<text class="dimlbl${cls}" x="${X(lx)}" y="${Y(ly)}" text-anchor="${anchor}">${over?`${fmt(-val)} over`:fmt(val)}</text>`;
+    h+=`<text class="dimlbl${cls}" x="${X(lx)}" y="${Y(ly)}" text-anchor="${anchor}">${over?`${fmtLen(-val)} over`:fmtLen(val)}</text>`;
   };
   if(Math.abs(d.left)>0.05)seg(0,cy,d.x0,cy,d.left,(0+d.x0)/2,cy+1.2,'middle');
   if(Math.abs(d.right)>0.05)seg(d.x1,cy,180,cy,d.right,(d.x1+180)/2,cy+1.2,'middle');
@@ -196,7 +208,7 @@ function renderOver(){
   const a=areaBox(),ar=R(a.x,a.y,a.w,a.h);let h='';
   if(L.pen.offset_x||L.pen.offset_y){const r=reach();h+=`<rect class="reach" ${rA(r)}></rect><text class="offlbl" x="${X(x2(r))}" y="${(V.y1-y2(r)-1.5).toFixed(2)}" text-anchor="end" style="fill:var(--warn)">pen reach</text>`}
   h+=`<g ${rotAttr(a)}><rect class="area${sel==='area'?' sel':''}${isBad()?' bad':''}" data-drag="area" ${rA(ar)}></rect>`;
-  h+=`<text class="dim" x="${X(a.x+a.w/2)}" y="${(V.y1-a.y+5).toFixed(2)}" text-anchor="middle">${fmt(a.w)} × ${fmt(a.h)} mm</text></g>`;
+  h+=`<text class="dim" x="${X(a.x+a.w/2)}" y="${(V.y1-a.y+5).toFixed(2)}" text-anchor="middle">${fmtSize(a.w,a.h)}</text></g>`;
   [['fl',0,0],['fr',a.w,0],['bl',0,a.h],['br',a.w,a.h]].forEach(([k,u,v])=>{
     const [x,y]=toWorld(a,u,v);
     h+=`<rect class="handle" data-drag="h-${k}" x="${(x-V.x0-2).toFixed(2)}" y="${(V.y1-y-2).toFixed(2)}" width="4" height="4" rx=".6" style="cursor:crosshair"></rect>`;
@@ -208,7 +220,7 @@ function renderOver(){
   if(sel==='paper')h+=knob(paperBox(),'paper');
   if(showDims&&!drawing&&(sel==='paper'||sel==='area'))h+=dimsSVG(sel==='paper'?paperBox():areaBox());
   if(drawing?.rect){const r=drawing.rect;h+=`<rect class="drawrect" ${rA(r)}></rect>`+dimsSVG({...r,rot:0})+
-    `<text class="dimlbl" x="${X(r.x+r.w/2)}" y="${Y(r.y+r.h/2)}" text-anchor="middle">${fmt(r.w)} × ${fmt(r.h)} mm</text>`}
+    `<text class="dimlbl" x="${X(r.x+r.w/2)}" y="${Y(r.y+r.h/2)}" text-anchor="middle">${fmtSize(r.w,r.h)}</text>`}
   h+=`<path class="axis" d="M${X(0)} ${Y(0)}m0 7h12M${X(0)} ${Y(0)}m-7 0v-12"></path><path class="axisfill" d="M${X(12)} ${(V.y1+7).toFixed(2)}l-2.4 -1.3v2.6zM${(-V.x0-7).toFixed(2)} ${Y(12)}l-1.3 2.4h2.6z"></path>`;
   h+=`<text class="offlbl" x="${X(14)}" y="${(V.y1+8.2).toFixed(2)}">X</text><text class="offlbl" x="${(-V.x0-8.2).toFixed(2)}" y="${Y(14)}">Y</text><text class="offlbl" x="${X(0)}" y="${(V.y1+12.5).toFixed(2)}" text-anchor="middle">0,0</text>`;
   $('over').innerHTML=h;
@@ -273,23 +285,23 @@ const setP=(o,p,v)=>{const ks=p.split('.'),l=ks.pop();ks.reduce((a,k)=>a[k],o)[l
 const layoutInputs=[...document.querySelectorAll('[id^="L."]')];
 const prepInputs=[...document.querySelectorAll('input[id^="P."],select[id^="P."]')];
 function syncInputs(){
-  for(const el of layoutInputs){if(el===document.activeElement)continue;const v=getP(L,el.id.slice(2));el.value=typeof v==='number'?Math.round(v*100)/100:v}
+  for(const el of layoutInputs){if(el===document.activeElement)continue;const v=getP(L,el.id.slice(2));el.value=typeof v==='number'?(el.hasAttribute('data-len')?+toU(v).toFixed(UNITS[unit].inDec):Math.round(v*100)/100):v}
   for(const el of prepInputs){const v=job.prep[el.id.slice(2)];if(el.type==='range'){const o=$(el.id+'.out');if(o)o.textContent=fmtVal(v,el.step,el.dataset.unit||'')}if(el===document.activeElement)continue;if(el.type==='checkbox')el.checked=!!v;else el.value=v}
   document.querySelectorAll('#orient button').forEach(b=>b.setAttribute('aria-pressed',b.dataset.o===L.paper.orientation));
   document.querySelectorAll('#tapeEdges button').forEach(b=>b.setAttribute('aria-pressed',!!L.tape[b.dataset.edge]));
   $('clearClips').disabled=!L.clips.length;
-  $('cliplist').innerHTML=L.clips.map((c,i)=>`<li data-i="${i}" class="${sel==='clip:'+i?'sel':''}"><span>Clip ${i+1} · X ${fmt(c.x)} Y ${fmt(c.y)}</span><button type="button" aria-label="Remove clip ${i+1}" data-rm="${i}">×</button></li>`).join('');
+  $('cliplist').innerHTML=L.clips.map((c,i)=>`<li data-i="${i}" class="${sel==='clip:'+i?'sel':''}"><span>Clip ${i+1} · X ${fmtU(c.x)} Y ${fmtU(c.y)} ${unit}</span><button type="button" aria-label="Remove clip ${i+1}" data-rm="${i}">×</button></li>`).join('');
   $('aspect').disabled=!job.image;
   const custom=L.paper.size==='custom';$('pwField').hidden=$('phField').hidden=!custom;
   renderAlignExpected();
   for(const [kind,b] of [['paper',paperBox()],['area',areaBox()]]){
     const d=edgeDist(b);
-    for(const side of ['left','front','right','back']){const el=$(`D.${kind}.${side}`);if(el!==document.activeElement)el.value=Math.round(d[side]*10)/10}
+    for(const side of ['left','front','right','back']){const el=$(`D.${kind}.${side}`);if(el!==document.activeElement)el.value=+toU(d[side]).toFixed(UNITS[unit].dec)}
   }
 }
 /* Typing a distance from a plate edge moves the shape so its outer edge lands there. */
 document.querySelectorAll('[id^="D."]').forEach(el=>el.addEventListener('input',()=>{
-  const v=parseFloat(el.value);if(!isFinite(v))return;
+  const raw=parseFloat(el.value);if(!isFinite(raw))return;const v=fromU(raw);
   const [,kind,side]=el.id.split('.'),obj=kind==='paper'?L.paper:L.area,d=edgeDist(kind==='paper'?paperBox():areaBox());
   const delta=v-d[side];
   if(side==='left')obj.x+=delta;else if(side==='right')obj.x-=delta;else if(side==='front')obj.y+=delta;else obj.y-=delta;
@@ -302,7 +314,7 @@ function changed(keys){
 for(const el of layoutInputs)el.addEventListener('input',()=>{
   const key=el.id.slice(2);let v=el.value;
   if(key==='paper.size'&&v==='custom'&&L.paper.size!=='custom'){const b=paperBox();L.paper.width=b.w;L.paper.height=b.h}
-  if(el.type==='number'){v=parseFloat(v);if(!isFinite(v))return;if(el.min!==''&&v<+el.min)return;if(el.max!==''&&v>+el.max)return}
+  if(el.type==='number'){v=parseFloat(v);if(!isFinite(v))return;if(el.min!==''&&v<+el.min)return;if(el.max!==''&&v>+el.max)return;if(el.hasAttribute('data-len'))v=fromU(v)}
   if(key.endsWith('rotation'))v=normAng(v);
   setP(L,key,v);changed([key]);
 });
@@ -518,10 +530,10 @@ svg.addEventListener('pointermove',e=>{
 const end=()=>{
   if(drawing?.start){
     const r=drawing.rect,kind=drawing.kind,min=kind==='paper'?20:10;stopDraw();
-    if(!r||r.w<min||r.h<min){setStatus(`Too small: draw at least ${min} × ${min} mm.`,true);return}
+    if(!r||r.w<min||r.h<min){setStatus(`Too small: draw at least ${fmtSize(min,min)}.`,true);return}
     if(kind==='paper'){Object.assign(L.paper,{size:'custom',x:r.x,y:r.y,width:r.w,height:r.h,rotation:0,orientation:r.w>r.h?'landscape':'portrait'});sel='paper'}
     else{L.area={...L.area,x:r.x,y:r.y,w:r.w,h:r.h,rotation:0};sel='area'}
-    changed(kind==='area'?['area.w']:['paper']);setStatus(`${kind==='paper'?'Paper':'Drawing area'} set to ${fmt(r.w)} × ${fmt(r.h)} mm.`);return;
+    changed(kind==='area'?['area.w']:['paper']);setStatus(`${kind==='paper'?'Paper':'Drawing area'} set to ${fmtSize(r.w,r.h)}.`);return;
   }
   if(!drag)return;const resized=drag.k.startsWith('h-');drag=null;changed(resized?['area.w']:['moved'])};
 svg.addEventListener('pointerup',end);svg.addEventListener('pointercancel',end);
@@ -760,7 +772,7 @@ $('edMatchArea').onclick=()=>{
   const c=ED.crop,turn=+job.prep.rotate||0;let asp=((c[2]-c[0])*job.image.w)/((c[3]-c[1])*job.image.h);
   if(turn===90||turn===270)asp=1/asp;
   const a=L.area,[,cy]=centerOf(a);a.h=Math.round(a.w/asp*10)/10;a.y=Math.round((cy-a.h/2)*10)/10;
-  changed(['area.h']);$('edStatus').textContent=`Drawing area reshaped to ${fmt(a.w)} × ${fmt(a.h)} mm to match the crop. Check the safety checks.`;
+  changed(['area.h']);$('edStatus').textContent=`Drawing area reshaped to ${fmtSize(a.w,a.h)} to match the crop. Check the safety checks.`;
 };
 function drawCrop(g){
   const c=ED.crop||[0,0,1,1],on=ED.tool==='crop';
@@ -832,6 +844,36 @@ edDraw.addEventListener('pointerup',()=>{
   }else maskOp({op:'paint',smart:$('edSmart').checked,strokes:[{mode:dr.tool==='keep'?'keep':'erase',points:dr.pts,size:+$('edSize').value/ED.dw}]});
 });
 
+/* ---------- units ---------- */
+function paperOptions(){
+  if(!DEF?.paper_sizes)return;
+  const sel=$('L.paper.size'),cur=L?.paper?.size||sel.value||'A5';
+  sel.innerHTML=DEF.paper_sizes.map(p=>`<option value="${esc(p.key)}">${esc(p.key)} · ${fmtSize(p.w,p.h)}</option>`).join('')+'<option value="custom">Custom size…</option>';
+  sel.value=cur;
+}
+function applyUnits(prev){
+  const u=UNITS[unit];
+  document.querySelectorAll('input[data-len]').forEach(el=>{
+    if(el.dataset.minMm===undefined){el.dataset.minMm=el.min;el.dataset.maxMm=el.max}
+    el.step=u.step;
+    el.min=el.dataset.minMm===''?'':+(+el.dataset.minMm/u.f).toFixed(u.dec+1);
+    el.max=el.dataset.maxMm===''?'':+(+el.dataset.maxMm/u.f).toFixed(u.dec+1);
+    const label=el.closest('.field')?.querySelector(':scope>span');if(label)label.dataset.unit=unit;
+    // Typed-in measurements that aren't part of the layout: convert them in place.
+    if(prev&&!el.id.startsWith('L.')&&!el.id.startsWith('D.')&&el.value!==''){
+      const mm=parseFloat(el.value)*UNITS[prev].f;el.value=+(mm/u.f).toFixed(u.inDec);
+    }
+  });
+  $('snapLabel').textContent=`Snap to ${u.snapLabel}`;
+  document.querySelectorAll('#units button').forEach(b=>b.setAttribute('aria-pressed',b.dataset.u===unit));
+  paperOptions();
+}
+document.querySelectorAll('#units button').forEach(b=>b.onclick=()=>{
+  if(b.dataset.u===unit)return;const prev=unit;unit=b.dataset.u;
+  try{localStorage.setItem('bambuplot.units',unit)}catch(_){}
+  applyUnits(prev);if(currentProject){render();refreshChecks();updateAlignment()}
+});
+
 /* ---------- alignment test ---------- */
 /* Where the cross should land, measured from the sheet's own left and front edges. */
 function alignExpected(){
@@ -841,25 +883,25 @@ function alignExpected(){
 }
 let alT=0,alLast=null;
 function renderAlignExpected(){
-  const [l,f]=alignExpected();$('alExpL').textContent=`${l.toFixed(1)} mm`;$('alExpF').textContent=`${f.toFixed(1)} mm`;
+  const [l,f]=alignExpected();$('alExpL').textContent=fmtLen(l);$('alExpF').textContent=fmtLen(f);
 }
-function dirWords(v,pos,neg){return `${Math.abs(v).toFixed(1)} mm ${v>0?pos:neg}`}
+function dirWords(v,pos,neg){return `${fmtLen(Math.abs(v))} ${v>0?pos:neg}`}
 async function updateAlignment(){
-  const l=parseFloat($('alMeasL').value),f=parseFloat($('alMeasF').value),box=$('alResult');
+  const l=fromU(parseFloat($('alMeasL').value)),f=fromU(parseFloat($('alMeasF').value)),box=$('alResult');
   if(!isFinite(l)||!isFinite(f)){box.hidden=true;$('alPaper').disabled=$('alPen').disabled=true;alLast=null;return}
   try{
     const c=await (await post('/api/alignment',{layout:L,left:l,front:f})).json();alLast=c;
     const err=Math.hypot(c.error_x,c.error_y),ok=err<0.3;
-    let html=ok?`<span class="big">On target</span>The cross landed within ${err.toFixed(1)} mm of where it should. No correction needed.`
+    let html=ok?`<span class="big">On target</span>The cross landed within ${fmtLen(err)} of where it should. No correction needed.`
       :`<span class="big">${dirWords(c.error_bed_x,'right','left')}, ${dirWords(c.error_bed_y,'toward the back','toward the front')}</span>`+
        `The drawing landed that far from where it should on the sheet. Either <b>move the sheet ${dirWords(c.move_sheet[0],'right','left')} and ${dirWords(c.move_sheet[1],'back','forward')}</b> next time, or apply a fix below.`;
     // Optional size check: the circle's outside size is its diameter plus the pen width.
     // The Download/Send test always uses a 25 mm circle; an alignment project uses its own setting.
     const r=job.effect==='alignment'?+((job.params.alignment||{}).radius??25):25,want=2*r+L.pen.width_mm,sz=[];
     for(const [id,axis] of [['alW','X'],['alH','Y']]){
-      const m=parseFloat($(id).value);if(!isFinite(m))continue;
+      const m=fromU(parseFloat($(id).value));if(!isFinite(m))continue;
       const pct=(m/want-1)*100;
-      sz.push(Math.abs(pct)<0.4?`${axis} size is right (${m.toFixed(1)} of ${want.toFixed(1)} mm).`:`${axis} is ${Math.abs(pct).toFixed(1)}% too ${pct>0?'long':'short'} (${m.toFixed(1)} vs ${want.toFixed(1)} mm): check the belt tension on that axis.`);
+      sz.push(Math.abs(pct)<0.4?`${axis} size is right (${fmtLen(m)} of ${fmtLen(want)}).`:`${axis} is ${Math.abs(pct).toFixed(1)}% too ${pct>0?'long':'short'} (${fmtLen(m)} vs ${fmtLen(want)}): check the belt tension on that axis.`);
     }
     if(sz.length)html+=`<br>${sz.join(' ')}`;
     box.innerHTML=html;box.className='alignresult '+(ok?'ok':'off');box.hidden=false;
@@ -874,7 +916,7 @@ $('alPaper').onclick=()=>{
 };
 $('alPen').onclick=()=>{
   if(!alLast)return;[L.pen.offset_x,L.pen.offset_y]=alLast.pen_offset.map(v=>Math.round(v*100)/100);changed(['pen.offset_x']);
-  clearAlign(`<span class="big">Pen offset corrected</span>Now X ${fmt(L.pen.offset_x)} mm, Y ${fmt(L.pen.offset_y)} mm. Plot the test again to confirm.`);
+  clearAlign(`<span class="big">Pen offset corrected</span>Now X ${fmtLen(L.pen.offset_x)}, Y ${fmtLen(L.pen.offset_y)}. Plot the test again to confirm.`);
 };
 
 /* ---------- slider fill (blue up to the thumb, like macOS) ---------- */
@@ -1042,8 +1084,8 @@ function askDelete(c){
     DEF=defs;effects=effs;L=deepMerge(defs.layout,null);job.prep=deepMerge(defs.prep,null);
     if(defs.paper_sizes){
       PAPERS=Object.fromEntries(defs.paper_sizes.map(p=>[p.key,[p.w,p.h]]));
-      $('L.paper.size').innerHTML=defs.paper_sizes.map(p=>`<option value="${esc(p.key)}">${esc(p.label)}</option>`).join('')+'<option value="custom">Custom size…</option>';
     }
+    applyUnits();
     loadPrinter();
     // First run with projects: keep the setup from before as a first project.
     const list=await (await fetch('/api/projects')).json();

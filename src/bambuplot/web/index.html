@@ -171,6 +171,14 @@
 
       <!-- Bed -->
       <div class="pane" id="pane-setup" role="tabpanel" aria-labelledby="tab-setup" hidden>
+        <div class="unitsrow">
+          <span>Units</span>
+          <div class="segmented mini" id="units" role="group" aria-label="Measurement units">
+            <button type="button" data-u="mm" aria-pressed="true">mm</button>
+            <button type="button" data-u="cm" aria-pressed="false">cm</button>
+            <button type="button" data-u="in" aria-pressed="false">in</button>
+          </div>
+        </div>
         <details class="group" id="alignGroup">
           <summary><h2>Alignment</h2></summary>
           <ol class="steps compact">
@@ -185,10 +193,10 @@
           <div class="grid2" style="margin-top:10px">
             <div class="field"><span>Should be from left</span><output class="readout" id="alExpL">–</output></div>
             <div class="field"><span>Should be from front</span><output class="readout" id="alExpF">–</output></div>
-            <label class="field"><span>Measured from left</span><input type="number" id="alMeasL" step="0.1" placeholder="mm"></label>
-            <label class="field"><span>Measured from front</span><input type="number" id="alMeasF" step="0.1" placeholder="mm"></label>
-            <label class="field" title="Optional: the circle's outside width, left to right"><span>Circle width <small>optional</small></span><input type="number" id="alW" step="0.1" placeholder="mm"></label>
-            <label class="field" title="Optional: the circle's outside height, front to back"><span>Circle height <small>optional</small></span><input type="number" id="alH" step="0.1" placeholder="mm"></label>
+            <label class="field"><span>Measured from left</span><input type="number" id="alMeasL" data-len step="0.1" placeholder=""></label>
+            <label class="field"><span>Measured from front</span><input type="number" id="alMeasF" data-len step="0.1" placeholder=""></label>
+            <label class="field" title="Optional: the circle's outside width, left to right"><span>Circle width <small>optional</small></span><input type="number" id="alW" data-len step="0.1" placeholder=""></label>
+            <label class="field" title="Optional: the circle's outside height, front to back"><span>Circle height <small>optional</small></span><input type="number" id="alH" data-len step="0.1" placeholder=""></label>
           </div>
           <div class="alignresult" id="alResult" role="status" hidden></div>
           <div class="btnrow tight">
@@ -200,10 +208,10 @@
         <details class="group" open>
           <summary><h2>Drawing Area</h2></summary>
           <div class="grid2">
-            <label class="field"><span>X</span><input type="number" id="L.area.x" step="0.5"></label>
-            <label class="field"><span>Y</span><input type="number" id="L.area.y" step="0.5"></label>
-            <label class="field"><span>Width</span><input type="number" id="L.area.w" step="0.5" min="10"></label>
-            <label class="field"><span>Height</span><input type="number" id="L.area.h" step="0.5" min="10"></label>
+            <label class="field"><span>X</span><input type="number" id="L.area.x" data-len step="0.5"></label>
+            <label class="field"><span>Y</span><input type="number" id="L.area.y" data-len step="0.5"></label>
+            <label class="field"><span>Width</span><input type="number" id="L.area.w" data-len step="0.5" min="10"></label>
+            <label class="field"><span>Height</span><input type="number" id="L.area.h" data-len step="0.5" min="10"></label>
             <label class="field"><span>Rotation °</span><input type="number" id="L.area.rotation" step="1"></label>
             <label class="field"><span>Touch-off</span>
               <select id="L.touch_off"><option value="fl">Front-left</option><option value="fr">Front-right</option><option value="bl">Back-left</option><option value="br">Back-right</option><option value="c">Center</option></select>
@@ -222,13 +230,13 @@
           </div>
           <h3 class="subhead">From bed edges</h3>
           <div class="grid4">
-            <label class="field" title="Plate's left edge to the area"><span>Left</span><input type="number" id="D.area.left" step="0.5"></label>
-            <label class="field" title="Plate's front edge to the area"><span>Front</span><input type="number" id="D.area.front" step="0.5"></label>
-            <label class="field" title="Area to the plate's right edge"><span>Right</span><input type="number" id="D.area.right" step="0.5"></label>
-            <label class="field" title="Area to the plate's back edge"><span>Back</span><input type="number" id="D.area.back" step="0.5"></label>
+            <label class="field" title="Plate's left edge to the area"><span>Left</span><input type="number" id="D.area.left" data-len step="0.5"></label>
+            <label class="field" title="Plate's front edge to the area"><span>Front</span><input type="number" id="D.area.front" data-len step="0.5"></label>
+            <label class="field" title="Area to the plate's right edge"><span>Right</span><input type="number" id="D.area.right" data-len step="0.5"></label>
+            <label class="field" title="Area to the plate's back edge"><span>Back</span><input type="number" id="D.area.back" data-len step="0.5"></label>
           </div>
           <div class="btnrow tight"><button class="btn small" type="button" id="drawArea" title="Drag on the plate to draw the drawing area">Draw on Plate</button></div>
-          <div class="srow sw"><label for="snap">Snap to 1 mm</label><input type="checkbox" class="switch" id="snap" checked></div>
+          <div class="srow sw"><label for="snap" id="snapLabel">Snap to 1 mm</label><input type="checkbox" class="switch" id="snap" checked></div>
           <p class="foot">Drag the knob above a selected shape to rotate it (Shift snaps to 15°). Arrow keys nudge it 1 mm; [ and ] turn it 1°.</p>
         </details>
         <details class="group" open>
@@ -238,17 +246,17 @@
             <div class="field"><span>Orientation</span>
               <div class="segmented mini" id="orient"><button type="button" data-o="portrait">Portrait</button><button type="button" data-o="landscape">Landscape</button></div>
             </div>
-            <label class="field" id="pwField"><span>Width</span><input type="number" id="L.paper.width" step="0.5" min="10" max="400"></label>
-            <label class="field" id="phField"><span>Height</span><input type="number" id="L.paper.height" step="0.5" min="10" max="400"></label>
-            <label class="field"><span>Margin</span><input type="number" id="L.paper.margin" step="0.5" min="0"></label>
+            <label class="field" id="pwField"><span>Width</span><input type="number" id="L.paper.width" data-len step="0.5" min="10" max="400"></label>
+            <label class="field" id="phField"><span>Height</span><input type="number" id="L.paper.height" data-len step="0.5" min="10" max="400"></label>
+            <label class="field"><span>Margin</span><input type="number" id="L.paper.margin" data-len step="0.5" min="0"></label>
             <label class="field"><span>Rotation °</span><input type="number" id="L.paper.rotation" step="1"></label>
           </div>
           <h3 class="subhead">From bed edges <small>negative = hangs over</small></h3>
           <div class="grid4">
-            <label class="field" title="Plate's left edge to the paper"><span>Left</span><input type="number" id="D.paper.left" step="0.5"></label>
-            <label class="field" title="Plate's front edge to the paper"><span>Front</span><input type="number" id="D.paper.front" step="0.5"></label>
-            <label class="field" title="Paper to the plate's right edge"><span>Right</span><input type="number" id="D.paper.right" step="0.5"></label>
-            <label class="field" title="Paper to the plate's back edge"><span>Back</span><input type="number" id="D.paper.back" step="0.5"></label>
+            <label class="field" title="Plate's left edge to the paper"><span>Left</span><input type="number" id="D.paper.left" data-len step="0.5"></label>
+            <label class="field" title="Plate's front edge to the paper"><span>Front</span><input type="number" id="D.paper.front" data-len step="0.5"></label>
+            <label class="field" title="Paper to the plate's right edge"><span>Right</span><input type="number" id="D.paper.right" data-len step="0.5"></label>
+            <label class="field" title="Paper to the plate's back edge"><span>Back</span><input type="number" id="D.paper.back" data-len step="0.5"></label>
           </div>
           <div class="btnrow tight">
             <button class="btn small" type="button" id="drawPaper" title="Drag on the plate to draw a custom paper size">Draw on Plate</button>
@@ -271,9 +279,9 @@
             </div>
           </div>
           <div class="grid3" style="margin-top:8px">
-            <label class="field" title="Width of the tape roll"><span>Tape width</span><input type="number" id="L.tape.width" step="1" min="3" max="60"></label>
-            <label class="field" title="How far the tape reaches onto the sheet"><span>On paper</span><input type="number" id="L.tape.on_paper" step="0.5" min="0.5" max="40"></label>
-            <label class="field" title="Extra gap kept between the tape and any ink"><span>Keep-out</span><input type="number" id="L.tape.keep_out" step="0.5" min="0" max="20"></label>
+            <label class="field" title="Width of the tape roll"><span>Tape width</span><input type="number" id="L.tape.width" data-len step="1" min="3" max="60"></label>
+            <label class="field" title="How far the tape reaches onto the sheet"><span>On paper</span><input type="number" id="L.tape.on_paper" data-len step="0.5" min="0.5" max="40"></label>
+            <label class="field" title="Extra gap kept between the tape and any ink"><span>Keep-out</span><input type="number" id="L.tape.keep_out" data-len step="0.5" min="0" max="20"></label>
           </div>
           <div class="btnrow tight">
             <button class="btn small" type="button" id="tapeAll">All Edges</button>
@@ -284,8 +292,8 @@
         <details class="group">
           <summary><h2>Pen Holder</h2></summary>
           <div class="grid3">
-            <label class="field" title="Pen tip minus nozzle, +X right"><span>Offset X</span><input type="number" id="L.pen.offset_x" step="0.5"></label>
-            <label class="field" title="Pen tip minus nozzle, +Y toward the back"><span>Offset Y</span><input type="number" id="L.pen.offset_y" step="0.5"></label>
+            <label class="field" title="Pen tip minus nozzle, +X right"><span>Offset X</span><input type="number" id="L.pen.offset_x" data-len step="0.5"></label>
+            <label class="field" title="Pen tip minus nozzle, +Y toward the back"><span>Offset Y</span><input type="number" id="L.pen.offset_y" data-len step="0.5"></label>
             <label class="field"><span>Pen width</span><input type="number" id="L.pen.width_mm" step="0.05" min="0.1"></label>
             <label class="field" title="Nozzle height where the pen is set to touch the paper"><span>Touch-off Z</span><input type="number" id="L.z.touch" step="0.1" min="1"></label>
             <label class="field" title="How far below touch-off to draw. Rigid holders: 0.1–0.2"><span>Press</span><input type="number" id="L.z.press" step="0.05" min="0" max="1"></label>
@@ -296,10 +304,10 @@
           <summary><h2>Clips</h2></summary>
           <ul class="cliplist" id="cliplist"></ul>
           <div class="grid2">
-            <label class="field"><span>Width</span><input type="number" id="L.clip_w" step="1" min="4"></label>
-            <label class="field"><span>Depth</span><input type="number" id="L.clip_d" step="1" min="4"></label>
-            <label class="field"><span>Height</span><input type="number" id="L.clip_height" step="1" min="1"></label>
-            <label class="field"><span>Keep-out</span><input type="number" id="L.clip_keep_out" step="0.5" min="0"></label>
+            <label class="field"><span>Width</span><input type="number" id="L.clip_w" data-len step="1" min="4"></label>
+            <label class="field"><span>Depth</span><input type="number" id="L.clip_d" data-len step="1" min="4"></label>
+            <label class="field"><span>Height</span><input type="number" id="L.clip_height" data-len step="1" min="1"></label>
+            <label class="field"><span>Keep-out</span><input type="number" id="L.clip_keep_out" data-len step="0.5" min="0"></label>
           </div>
           <div class="btnrow tight"><button class="btn small" type="button" id="addClip">Add Clip</button><button class="btn small" type="button" id="clearClips">Remove All</button></div>
         </details>

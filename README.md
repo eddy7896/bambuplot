@@ -121,6 +121,12 @@ Every setting is a slider with a live value. Settings that only matter in some m
 | | **Stipple** | Density contrast; drawn as one TSP line, pen taps, or small filled dots |
 | | **Dither dots** | Floyd–Steinberg, Atkinson or ordered dithering on a pen-sized grid |
 
+### Units
+
+**Bed → Units** switches page and paper measurements between **mm**, **cm** and **in**. This covers paper sizes, the drawing area, edge distances, margins, clips, tape, pen offsets, the alignment readings, and the labels on the plate. Snap follows the unit: 1 mm, or 1/16 in in inches.
+
+The choice is remembered on this computer. Projects and G-code always store millimetres, so switching never changes a layout. Pen width, Z heights and effect settings stay in mm.
+
 ### Paper size and placement
 
 Set these in **Bed → Paper**:
