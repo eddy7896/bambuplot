@@ -4,207 +4,40 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>BambuPlot</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
-<style>
-/* Layout: the build plate is the stage on the left; a tabbed rail (Setup / Artwork) on the right; checks and the job panel below. */
-:root{
-  --bg:#e8edef; --surface:#f8fafa; --ink:#1b2427; --muted:#56656b; --line:#cbd5d8;
-  --accent:#2246c8; --accent-soft:rgba(34,70,200,.12); --on-accent:#ffffff;
-  --area:#2246c8; --area-fill:rgba(34,70,200,.05);
-  --bed:#2c2d29; --bed-grid:#43443d; --bed-label:#bdb69c;
-  --paper:#fdfdf9; --paper-edge:#c3c6be; --paper-ink:#7a7d75;
-  --clip:#5a636b; --clip-edge:#262b30;
-  --ink-line:#1c2c8a; --travel:#d9480f;
-  --ok:#16793a; --warn:#b45309; --bad:#c0262d; --bad-soft:rgba(192,38,45,.10);
-  --font-ui:"Archivo",system-ui,-apple-system,"Segoe UI",sans-serif;
-  --font-mono:"IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,monospace;
-  color-scheme:light;
-}
-@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
-  --bg:#0f1416; --surface:#162022; --ink:#e1e8ea; --muted:#90a0a6; --line:#29363a;
-  --accent:#8ea2ff; --accent-soft:rgba(142,162,255,.16); --on-accent:#0f1416;
-  --area:#2a4bd4; --area-fill:rgba(42,75,212,.06);
-  --bed:#0b0c0b; --bed-grid:#26271f; --bed-label:#8e8873;
-  --paper:#ecebe4; --paper-edge:#8b8d85; --paper-ink:#6d7068;
-  --clip:#7c858c; --clip-edge:#c8cfd3;
-  --ok:#4ade80; --warn:#fbbf24; --bad:#f87171; --bad-soft:rgba(248,113,113,.14);
-  color-scheme:dark;
-}}
-:root[data-theme="dark"]{
-  --bg:#0f1416; --surface:#162022; --ink:#e1e8ea; --muted:#90a0a6; --line:#29363a;
-  --accent:#8ea2ff; --accent-soft:rgba(142,162,255,.16); --on-accent:#0f1416;
-  --area:#2a4bd4; --area-fill:rgba(42,75,212,.06);
-  --bed:#0b0c0b; --bed-grid:#26271f; --bed-label:#8e8873;
-  --paper:#ecebe4; --paper-edge:#8b8d85; --paper-ink:#6d7068;
-  --clip:#7c858c; --clip-edge:#c8cfd3;
-  --ok:#4ade80; --warn:#fbbf24; --bad:#f87171; --bad-soft:rgba(248,113,113,.14);
-  color-scheme:dark;
-}
-*{box-sizing:border-box}
-[hidden]{display:none!important}
-html,body{margin:0}
-body{background:var(--bg);color:var(--ink);font:14px/1.5 var(--font-ui)}
-.wrap{max-width:1360px;margin:0 auto;padding:20px 16px 56px}
-header{display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 16px;margin-bottom:14px}
-h1{font-size:22px;font-weight:700;letter-spacing:-.01em;margin:0}
-header p{margin:0;color:var(--muted)}
-.main{display:grid;grid-template-columns:minmax(0,1fr) 360px;gap:18px;align-items:start}
-@media (max-width:960px){.main{grid-template-columns:minmax(0,1fr)}}
-.panel{background:var(--surface);border:1px solid var(--line);border-radius:10px}
-.stage{padding:12px;min-width:0;position:sticky;top:12px}
-@media (max-width:960px){.stage{position:static}}
-.stagebar{display:flex;flex-wrap:wrap;gap:6px 14px;align-items:center;justify-content:space-between;padding:2px 4px 10px;font-size:12px;color:var(--muted)}
-.legend{display:flex;flex-wrap:wrap;gap:4px 12px}
-.legend span{display:inline-flex;align-items:center;gap:6px}
-.sw{width:12px;height:12px;border-radius:2px;display:inline-block;border:1px solid var(--line)}
-.status{font-family:var(--font-mono);font-variant-numeric:tabular-nums;color:var(--ink)}
-.status.err{color:var(--bad)}
-#plate{width:100%;height:auto;max-height:76vh;display:block;touch-action:none;outline:none;border-radius:6px}
-#plate:focus-visible{box-shadow:0 0 0 2px var(--accent)}
-.simbar{display:flex;flex-wrap:wrap;align-items:center;gap:8px 16px;padding:10px 4px 0;font-size:12px;color:var(--muted)}
-.simbar input[type=range]{flex:1;min-width:140px;accent-color:var(--accent)}
-.rail{display:flex;flex-direction:column;gap:12px;min-width:0}
-.tabs{display:flex;padding:4px;gap:4px}
-.tabs button{flex:1;font:600 13px var(--font-ui);padding:8px;border:0;border-radius:7px;background:transparent;color:var(--muted);cursor:pointer}
-.tabs button[aria-selected="true"]{background:var(--accent-soft);color:var(--ink)}
-.sec{padding:14px}
-.sec h2{font-size:11px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);margin:0 0 10px}
-.g2{display:grid;grid-template-columns:1fr 1fr;gap:8px 10px}
-.g3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px 10px}
-.f{display:flex;flex-direction:column;gap:3px;font-size:12px;color:var(--muted);min-width:0}
-.f.row{flex-direction:row;align-items:center;gap:8px;color:var(--ink);font-size:13px}
-.f small{font-size:11px;color:var(--muted)}
-input[type=number],input[type=text],input[type=password],select{font:500 13px var(--font-mono);font-variant-numeric:tabular-nums;padding:6px 8px;border:1px solid var(--line);border-radius:6px;background:var(--bg);color:var(--ink);width:100%;min-width:0}
-input:focus-visible,select:focus-visible,button:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
-.seg{display:flex;border:1px solid var(--line);border-radius:6px;overflow:hidden}
-.seg button{flex:1;font:500 13px var(--font-ui);padding:6px 8px;border:0;background:var(--bg);color:var(--muted);cursor:pointer}
-.seg button[aria-pressed="true"]{background:var(--accent-soft);color:var(--ink);font-weight:600}
-.btns{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px}
-.btn{font:500 13px var(--font-ui);padding:7px 11px;border:1px solid var(--line);border-radius:6px;background:var(--bg);color:var(--ink);cursor:pointer}
-.btn:hover{border-color:var(--accent)}
-.btn.primary{background:var(--accent);border-color:var(--accent);color:var(--on-accent);font-weight:600}
-.btn:disabled{opacity:.45;cursor:not-allowed}
-.hint{font-size:12px;color:var(--muted);margin:8px 0 0}
-.desc{font-size:13px;color:var(--muted);margin:6px 0 10px}
-.cliplist{list-style:none;margin:0 0 8px;padding:0;display:flex;flex-direction:column;gap:4px}
-.cliplist li{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:4px 6px 4px 10px;border:1px solid var(--line);border-radius:6px;font:12px var(--font-mono);font-variant-numeric:tabular-nums;cursor:pointer}
-.cliplist li.sel{border-color:var(--accent);background:var(--accent-soft)}
-.cliplist button{border:0;background:none;color:var(--muted);font-size:16px;line-height:1;cursor:pointer;padding:2px 6px;border-radius:4px}
-.cliplist button:hover{color:var(--bad)}
-.thumb{display:flex;gap:10px;align-items:center;margin-top:8px;font-size:12px;color:var(--muted)}
-.notes{margin:8px 0 0;padding-left:18px;font-size:12px;color:var(--warn)}
-.thumb .btn{margin-left:auto;padding:4px 9px}
-.slider .lab{display:flex;justify-content:space-between;gap:8px;color:var(--muted)}
-.slider output{font:500 12px var(--font-mono);font-variant-numeric:tabular-nums;color:var(--ink)}
-.slider input[type=range]{width:100%;accent-color:var(--accent);margin:2px 0}
-.params{display:flex;flex-direction:column;gap:10px}
-.param small,.boolhelp{display:block;font-size:11px;color:var(--muted)}
-.boolhelp{margin:2px 0 0 24px}
-.effhead{display:flex;align-items:center;justify-content:space-between;gap:8px}
-.linkbtn{border:0;background:none;color:var(--accent);font:500 12px var(--font-ui);cursor:pointer;padding:2px}
-#editor{width:min(1280px,96vw);height:min(920px,94vh);max-width:none;max-height:none;padding:0;border:1px solid var(--line);border-radius:12px;background:var(--surface);color:var(--ink)}
-#editor::backdrop{background:rgba(10,14,16,.55)}
-.ed-wrap{display:flex;flex-direction:column;height:100%}
-.ed-bar{display:flex;flex-wrap:wrap;align-items:center;gap:10px 16px;padding:12px 14px;border-bottom:1px solid var(--line)}
-.ed-bar h2{font-size:15px;margin:0 6px 0 0}
-.ed-size{min-width:150px}
-.ed-group{display:flex;align-items:flex-end;gap:10px 14px;flex-wrap:wrap}
-.ed-group[hidden]{display:none}
-.aibox{display:flex;align-items:flex-end;gap:8px;margin-top:8px}
-.aibox .f{flex:1;min-width:0}
-.hint code{font:12px var(--font-mono);background:var(--bg);padding:1px 4px;border-radius:4px}
-#edTools button{white-space:nowrap;padding:6px 12px}
-.ed-actions{margin:0 0 0 auto}
-.ed-stage{flex:1;min-height:0;display:flex;align-items:center;justify-content:center;padding:14px;background:var(--bg)}
-.ed-canvas{position:relative;box-shadow:0 1px 6px rgba(0,0,0,.18)}
-.ed-canvas canvas{position:absolute;inset:0;width:100%;height:100%}
-#edDraw{cursor:crosshair;touch-action:none}
-.ed-status{margin:0;padding:8px 14px;font-size:12px;color:var(--muted);border-top:1px solid var(--line);font-variant-numeric:tabular-nums}
-.ed-status.err{color:var(--bad)}
-.thumb img{width:56px;height:56px;object-fit:cover;border-radius:6px;border:1px solid var(--line);filter:grayscale(1)}
-.below{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:18px;margin-top:18px;align-items:start}
-@media (max-width:760px){.below{grid-template-columns:minmax(0,1fr)}}
-.checks ul{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:10px}
-.checks li{display:grid;grid-template-columns:auto 1fr;gap:2px 10px;align-items:start}
-.chip{grid-row:span 2;font:600 10px var(--font-mono);letter-spacing:.06em;padding:2px 6px;border-radius:4px;margin-top:2px;text-transform:uppercase;border:1px solid currentColor}
-.chip.ok{color:var(--ok)} .chip.warn{color:var(--warn)} .chip.bad{color:var(--bad)}
-.checks b{font-weight:600;font-size:13px}
-.checks small{color:var(--muted);font-size:12px;line-height:1.45}
-.nums{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin-bottom:12px}
-@media (max-width:460px){.nums{grid-template-columns:repeat(2,minmax(0,1fr))}}
-.nums div{border:1px solid var(--line);border-radius:8px;padding:8px 10px;background:var(--bg)}
-.nums b{display:block;font:600 18px var(--font-mono);font-variant-numeric:tabular-nums}
-.nums span{font-size:11px;color:var(--muted);letter-spacing:.04em;text-transform:uppercase}
-.problems{margin:10px 0 0;padding:10px 12px;border:1px solid var(--bad);border-radius:8px;color:var(--bad);font-size:12px;background:var(--bad-soft)}
-.problems ul{margin:4px 0 0;padding-left:18px}
-.sendbox{margin-top:12px;padding:12px;border:1px solid var(--accent);border-radius:8px;background:var(--accent-soft);display:flex;flex-direction:column;gap:8px}
-.sendbox .warnline{margin:0;font-size:12px;color:var(--ink)}
-.msg{font-size:12px;margin:0}
-.msg.err{color:var(--bad)} .msg.ok{color:var(--ok)}
-.steps{margin:12px 0 0;padding-left:18px;font-size:12px;color:var(--muted)}
-.steps li{margin:2px 0}
-input[type=file]{font:12px var(--font-ui);color:var(--muted);max-width:100%}
-
-/* plate drawing */
-.bed{fill:var(--bed)}
-.grid{stroke:var(--bed-grid);stroke-width:.3}
-.bedlbl{fill:var(--bed-label);font:500 3.4px var(--font-mono)}
-.offlbl{fill:var(--muted);font:500 3.4px var(--font-mono)}
-.axis{stroke:var(--muted);stroke-width:.5;fill:none}
-.axisfill{fill:var(--muted)}
-.reach{fill:none;stroke:var(--warn);stroke-width:.6;stroke-dasharray:3 2;pointer-events:none}
-.paper{fill:var(--paper);stroke:var(--paper-edge);stroke-width:.4;cursor:move}
-.paper.sel{stroke:var(--accent);stroke-width:.8}
-.hatchline{stroke:var(--bad);stroke-width:.5;opacity:.55}
-.overhang{fill:url(#hatch);pointer-events:none}
-.pmargin{fill:none;stroke:var(--paper-edge);stroke-width:.3;stroke-dasharray:1.5 1.5;pointer-events:none}
-.paperlbl{fill:var(--paper-ink);font:500 3.4px var(--font-mono);pointer-events:none}
-.clip{fill:var(--clip);stroke:var(--clip-edge);stroke-width:.4;cursor:move}
-.clip.sel{stroke:var(--accent);stroke-width:.9}
-.cliplbl{fill:var(--bg);font:600 3.6px var(--font-mono);pointer-events:none}
-.keep{fill:var(--bad-soft);stroke:var(--bad);stroke-width:.3;stroke-dasharray:1.2 1.2;pointer-events:none}
-.area{fill:var(--area-fill);stroke:var(--area);stroke-width:.6;cursor:move}
-.area.sel{stroke-width:.9}
-.area.bad{stroke:var(--bad)}
-.handle{fill:var(--paper);stroke:var(--area);stroke-width:.6}
-#ink{fill:none;stroke:var(--ink-line);stroke-linecap:round;stroke-linejoin:round}
-#travel{fill:none;stroke:var(--travel);stroke-width:.25;stroke-dasharray:.8 .8;opacity:.8}
-#inkg{pointer-events:none}
-#inkg.stale{opacity:.45}
-.src{opacity:.22;filter:grayscale(1);pointer-events:none}
-.dim{fill:var(--area);font:600 3.6px var(--font-mono);pointer-events:none}
-.touch{stroke:var(--bad);stroke-width:.5;fill:none;pointer-events:none}
-.knobline{stroke:var(--accent);stroke-width:.4;stroke-dasharray:1 1;pointer-events:none}
-.knob{fill:var(--surface);stroke:var(--accent);stroke-width:.7;cursor:grab}
-.knob:active{cursor:grabbing}
-.angle{fill:var(--accent);font:600 3.4px var(--font-mono);pointer-events:none}
-.rotrow{display:flex;gap:6px;align-items:flex-end;margin-top:8px}
-.rotrow .f{flex:0 0 92px}
-.rotrow .btn{padding:6px 9px}
-@media (prefers-reduced-motion:no-preference){.btn,.seg button,.tabs button{transition:border-color .15s,background .15s}}
-</style>
+<link rel="stylesheet" href="/static/app.css">
 </head>
 <body>
-<div class="wrap">
-  <header>
-    <h1>BambuPlot</h1>
-    <p>Image to pen plot on the Bambu Lab A1 Mini. Sizes in millimeters, measured from the plate's front-left corner.</p>
+<input type="file" id="file" accept="image/png,image/jpeg,image/webp,image/svg+xml,.svg" hidden>
+<input type="file" id="importLayout" accept="application/json,.json" hidden>
+
+<div class="app">
+  <!-- ============================== toolbar ============================== -->
+  <header class="toolbar">
+    <div class="tb-title">
+      <svg class="appicon" viewBox="0 0 32 32" aria-hidden="true"><rect x="2" y="2" width="28" height="28" rx="7"/><path d="M9 22c3-6 6 2 9-4s4-6 5-7" /><circle cx="23" cy="11" r="2.2"/></svg>
+      <div><h1>BambuPlot</h1><span id="docName">Sample picture</span></div>
+    </div>
+    <div class="tb-status"><span id="status" role="status">Loading…</span></div>
+    <div class="tb-actions">
+      <label class="tbtn" for="file" title="Open a PNG, JPG or SVG (⌘O)">
+        <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M3 6.5V15a1.5 1.5 0 0 0 1.5 1.5h11A1.5 1.5 0 0 0 17 15V8.5A1.5 1.5 0 0 0 15.5 7H10L8.3 5H4.5A1.5 1.5 0 0 0 3 6.5Z"/></svg><span>Open</span>
+      </label>
+      <button class="tbtn" type="button" id="tbEdit" title="Crop, select the subject or remove the background (⌘E)" disabled>
+        <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M6 2v12h12M2 6h12v12"/></svg><span>Edit Picture</span>
+      </button>
+      <button class="tbtn" type="button" id="dlMenuBtn" popovertarget="dlMenu" title="Download files (⌘S for G-code)">
+        <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 3v9m-4-4 4 4 4-4M4 15.5h12"/></svg><span>Download</span>
+      </button>
+      <button class="tbtn prominent" type="button" id="sendOpen" title="Send to the printer (⌘↩)">
+        <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M3 10 17 3l-4 14-3-6-7-1Z"/></svg><span>Send to Printer</span>
+      </button>
+    </div>
   </header>
 
-  <div class="main">
-    <section class="panel stage" aria-label="Build plate">
-      <div class="stagebar">
-        <div class="legend">
-          <span><i class="sw" style="background:var(--bed)"></i>Plate 180 × 180</span>
-          <span><i class="sw" style="background:var(--paper)"></i>Paper</span>
-          <span><i class="sw" style="background:var(--clip)"></i>Clip</span>
-          <span><i class="sw" style="background:var(--area-fill);border-color:var(--area)"></i>Drawing area</span>
-        </div>
-        <div class="status" id="status" role="status">Loading…</div>
-      </div>
-      <svg id="plate" tabindex="0" xmlns="http://www.w3.org/2000/svg" aria-label="Build plate. Drag the paper, clips and drawing area. Arrow keys nudge the selection 1 mm, Shift for 10 mm.">
+  <!-- ============================== workspace ============================== -->
+  <main class="workspace">
+    <section class="canvas" aria-label="Build plate">
+      <svg id="plate" tabindex="0" xmlns="http://www.w3.org/2000/svg" aria-label="Build plate. Drag the paper, clips and drawing area. Arrow keys nudge the selection 1 mm, Shift for 10 mm. [ and ] rotate it.">
         <defs>
           <pattern id="hatch" width="3" height="3" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
             <line class="hatchline" x1="0" y1="0" x2="0" y2="3"></line>
@@ -219,989 +52,293 @@ input[type=file]{font:12px var(--font-ui);color:var(--muted);max-width:100%}
         </g>
         <g id="over"></g>
       </svg>
-      <div class="simbar">
-        <label class="f row" for="progress">Plot progress</label>
-        <input type="range" id="progress" min="0" max="1000" value="1000" aria-label="Plot progress">
-        <label class="f row"><input type="checkbox" id="showTravel"> Pen-up moves</label>
-        <label class="f row"><input type="checkbox" id="showImg" checked> Source image</label>
+      <div class="banner" id="problems" role="alert" hidden></div>
+      <div class="legend" aria-hidden="true">
+        <span><i style="background:var(--bed)"></i>Plate</span>
+        <span><i style="background:var(--paper);box-shadow:inset 0 0 0 1px var(--paper-edge)"></i>Paper</span>
+        <span><i style="background:var(--clip)"></i>Clip</span>
+        <span><i style="background:var(--area-fill);box-shadow:inset 0 0 0 1.5px var(--area)"></i>Drawing area</span>
+        <span><i class="cross"></i>Pen touch-off</span>
       </div>
     </section>
 
-    <aside class="rail">
-      <div class="panel tabs" role="tablist">
-        <button role="tab" id="tab-art" aria-selected="true" aria-controls="pane-art">Artwork</button>
-        <button role="tab" id="tab-setup" aria-selected="false" aria-controls="pane-setup">Bed setup</button>
-        <button role="tab" id="tab-printer" aria-selected="false" aria-controls="pane-printer">Printer</button>
+    <!-- ============================== inspector ============================== -->
+    <aside class="inspector" aria-label="Inspector">
+      <div class="segmented tabs" role="tablist">
+        <button role="tab" id="tab-picture" aria-selected="true" aria-controls="pane-picture" title="⌘1">Picture</button>
+        <button role="tab" id="tab-effect" aria-selected="false" aria-controls="pane-effect" title="⌘2">Effect</button>
+        <button role="tab" id="tab-setup" aria-selected="false" aria-controls="pane-setup" title="⌘3">Bed</button>
+        <button role="tab" id="tab-printer" aria-selected="false" aria-controls="pane-printer" title="⌘4">Printer</button>
       </div>
 
-      <div id="pane-art" class="rail" role="tabpanel" aria-labelledby="tab-art">
-        <div class="panel sec">
+      <!-- Picture -->
+      <div class="pane" id="pane-picture" role="tabpanel" aria-labelledby="tab-picture">
+        <section class="group">
           <h2>Source</h2>
-          <input type="file" id="file" accept="image/png,image/jpeg,image/webp,image/svg+xml,.svg" aria-label="Choose a picture or SVG">
-          <div class="thumb" id="thumb"><span>No file loaded. The preview uses a sample sphere.</span></div>
+          <div class="thumb" id="thumb"></div>
           <ul class="notes" id="srcNotes" hidden></ul>
           <div id="selBox" hidden>
-            <div class="btns">
-              <button class="btn" type="button" id="selAuto">Remove background</button>
-              <button class="btn" type="button" id="selEdit">Select subject…</button>
+            <div class="btnrow">
               <button class="btn" type="button" id="cropOpen">Crop…</button>
+              <button class="btn" type="button" id="selEdit">Select Subject…</button>
+              <button class="btn" type="button" id="selAuto" title="Removes a plain background, or finds the subject in a photo">Remove Background</button>
             </div>
             <div class="aibox" id="aiBox" hidden>
-              <label class="f">AI model<select id="aiModel" aria-label="AI model"></select></label>
-              <button class="btn" type="button" id="selAI">AI remove background</button>
+              <select id="aiModel" aria-label="AI model"></select>
+              <button class="btn" type="button" id="selAI">AI Remove</button>
             </div>
-            <p class="hint" id="aiInstall" hidden>For one-click AI background removal, run <code>uv sync --extra ai</code> and restart BambuPlot.</p>
-            <p class="hint" id="selInfo">Nothing removed yet.</p>
-            <p class="hint" id="cropInfo" hidden></p>
-            <div class="g2" id="selOpts" hidden>
-              <label class="f row"><input type="checkbox" id="P.use_mask"> Use selection</label>
-              <label class="f slider" for="P.mask_feather"><span class="lab">Edge softness<output id="P.mask_feather.out"></output></span><input type="range" id="P.mask_feather" min="0" max="3" step="0.1" data-unit="mm"></label>
-            </div>
-          </div>
-          <p class="hint">PNG or JPG: pick a tone effect, or trace it into vector lines. SVG: its own paths are drawn directly.</p>
-          <div class="g2" id="toneControls" style="margin-top:12px">
-            <label class="f slider" for="P.contrast"><span class="lab">Contrast<output id="P.contrast.out"></output></span><input type="range" id="P.contrast" min="0.2" max="3" step="0.05" data-unit="×"></label>
-            <label class="f slider" for="P.brightness"><span class="lab">Brightness<output id="P.brightness.out"></output></span><input type="range" id="P.brightness" min="-0.5" max="0.5" step="0.01"></label>
-            <label class="f slider" for="P.gamma"><span class="lab">Gamma<output id="P.gamma.out"></output></span><input type="range" id="P.gamma" min="0.3" max="3" step="0.05"></label>
-            <label class="f slider" for="P.paper_white"><span class="lab">Paper white<output id="P.paper_white.out"></output></span><input type="range" id="P.paper_white" min="0" max="0.5" step="0.01"><small>Near-white areas get no ink</small></label>
-            <label class="f">Placement
-              <select id="P.fit" data-kind="text"><option value="fill">Fill the area (trim edges)</option><option value="fit">Fit inside (blank margins)</option></select>
-            </label>
-            <label class="f">Turn image
-              <select id="P.rotate"><option value="0">Upright</option><option value="90">90° clockwise</option><option value="180">180°</option><option value="270">90° counter-clockwise</option></select>
-            </label>
-            <div class="f" style="justify-content:flex-end;gap:6px;grid-column:1/-1;flex-direction:row;gap:16px">
-              <label class="f row"><input type="checkbox" id="P.clahe"> Local contrast</label>
-              <label class="f row"><input type="checkbox" id="P.invert"> Invert</label>
+            <p class="foot" id="aiInstall" hidden>For one-click AI background removal, run <code>uv sync --extra ai</code> and restart BambuPlot.</p>
+            <p class="foot" id="selInfo">Nothing removed yet.</p>
+            <p class="foot" id="cropInfo" hidden></p>
+            <div id="selOpts" hidden>
+              <div class="srow sw"><label for="P.use_mask">Use selection</label><input type="checkbox" class="switch" id="P.use_mask"></div>
+              <div class="srow" title="Softens the cut edge"><label for="P.mask_feather">Edge softness</label><input type="range" id="P.mask_feather" min="0" max="3" step="0.1" data-unit="mm"><output id="P.mask_feather.out"></output></div>
             </div>
           </div>
-        </div>
-        <div class="panel sec">
-          <div class="effhead"><h2>Effect</h2><button class="linkbtn" type="button" id="resetParams">Reset settings</button></div>
-          <select id="effect" aria-label="Effect"></select>
-          <p class="desc" id="effectDesc"></p>
-          <div class="params" id="params"></div>
-        </div>
+        </section>
+        <section class="group" id="toneControls">
+          <h2>Tone</h2>
+          <div class="srow"><label for="P.contrast">Contrast</label><input type="range" id="P.contrast" min="0.2" max="3" step="0.05" data-unit="×"><output id="P.contrast.out"></output></div>
+          <div class="srow"><label for="P.brightness">Brightness</label><input type="range" id="P.brightness" min="-0.5" max="0.5" step="0.01"><output id="P.brightness.out"></output></div>
+          <div class="srow"><label for="P.gamma">Gamma</label><input type="range" id="P.gamma" min="0.3" max="3" step="0.05"><output id="P.gamma.out"></output></div>
+          <div class="srow" title="Near-white areas get no ink"><label for="P.paper_white">Paper white</label><input type="range" id="P.paper_white" min="0" max="0.5" step="0.01"><output id="P.paper_white.out"></output></div>
+          <div class="srow sel"><label for="P.fit">Placement</label><select id="P.fit" data-kind="text"><option value="fill">Fill area</option><option value="fit">Fit inside</option></select></div>
+          <div class="srow sel"><label for="P.rotate">Turn</label><select id="P.rotate"><option value="0">Upright</option><option value="90">90° clockwise</option><option value="180">180°</option><option value="270">90° counter-clockwise</option></select></div>
+          <div class="srow sw" title="Boosts local detail before the effect runs"><label for="P.clahe">Local contrast</label><input type="checkbox" class="switch" id="P.clahe"></div>
+          <div class="srow sw"><label for="P.invert">Invert</label><input type="checkbox" class="switch" id="P.invert"></div>
+        </section>
       </div>
 
-      <div id="pane-setup" class="rail" role="tabpanel" aria-labelledby="tab-setup" hidden>
-        <div class="panel sec">
-          <h2>Paper</h2>
-          <div class="g2">
-            <label class="f">Size
-              <select id="L.paper.size"><option value="A5">A5 · 148 × 210</option><option value="A6">A6 · 105 × 148</option></select>
-            </label>
-            <div class="f">Orientation
-              <div class="seg" id="orient">
-                <button type="button" data-o="portrait">Portrait</button>
-                <button type="button" data-o="landscape">Landscape</button>
-              </div>
-            </div>
-            <label class="f">Left edge X<input type="number" id="L.paper.x" step="0.5"></label>
-            <label class="f">Front edge Y<input type="number" id="L.paper.y" step="0.5"></label>
-            <label class="f">Keep-in margin<input type="number" id="L.paper.margin" step="0.5" min="0"></label>
-          </div>
-          <div class="rotrow">
-            <label class="f">Rotation °<input type="number" id="L.paper.rotation" step="1"></label>
-            <button class="btn" type="button" data-rot="paper:-1" aria-label="Rotate paper 1 degree clockwise">−1°</button>
-            <button class="btn" type="button" data-rot="paper:1" aria-label="Rotate paper 1 degree counter-clockwise">+1°</button>
-            <button class="btn" type="button" data-rot="paper:=0">Square up</button>
-          </div>
-          <p class="hint">A5 is longer than the plate. The hatched part hangs off the edge with nothing under it, so the pen can't draw there.</p>
-        </div>
-        <div class="panel sec">
-          <h2>Pen holder (clip-on, rigid)</h2>
-          <div class="g3">
-            <label class="f">Offset X<input type="number" id="L.pen.offset_x" step="0.5"></label>
-            <label class="f">Offset Y<input type="number" id="L.pen.offset_y" step="0.5"></label>
-            <label class="f">Pen width<input type="number" id="L.pen.width_mm" step="0.05" min="0.1"></label>
-            <label class="f">Touch-off Z<input type="number" id="L.z.touch" step="0.1" min="1"></label>
-            <label class="f">Press<input type="number" id="L.z.press" step="0.05" min="0" max="1"></label>
-            <label class="f">Pen lift<input type="number" id="L.z.hop" step="0.1" min="0.3"></label>
-          </div>
-          <p class="hint">Offset is pen tip minus nozzle (+X right, +Y toward the back). Without a spring, keep the press at 0.1–0.2 mm. Print the press ladder from the Job panel to find yours.</p>
-        </div>
-        <div class="panel sec">
-          <h2>Clips</h2>
-          <ul class="cliplist" id="cliplist"></ul>
-          <div class="g2">
-            <label class="f">Width<input type="number" id="L.clip_w" step="1" min="4"></label>
-            <label class="f">Depth<input type="number" id="L.clip_d" step="1" min="4"></label>
-            <label class="f">Height<input type="number" id="L.clip_height" step="1" min="1"></label>
-            <label class="f">Keep-out<input type="number" id="L.clip_keep_out" step="0.5" min="0"></label>
-          </div>
-          <div class="btns"><button class="btn" type="button" id="addClip">Add clip</button></div>
-        </div>
-        <div class="panel sec">
-          <h2>Drawing area</h2>
-          <div class="g2">
-            <label class="f">X<input type="number" id="L.area.x" step="0.5"></label>
-            <label class="f">Y<input type="number" id="L.area.y" step="0.5"></label>
-            <label class="f">Width<input type="number" id="L.area.w" step="0.5" min="10"></label>
-            <label class="f">Height<input type="number" id="L.area.h" step="0.5" min="10"></label>
-            <label class="f">Touch-off point
-              <select id="L.touch_off"><option value="fl">Front-left corner</option><option value="fr">Front-right corner</option><option value="bl">Back-left corner</option><option value="br">Back-right corner</option><option value="c">Center</option></select>
-            </label>
-            <div class="f" style="justify-content:flex-end"><label class="f row"><input type="checkbox" id="snap" checked> Snap to 1 mm</label></div>
-          </div>
-          <div class="rotrow">
-            <label class="f">Rotation °<input type="number" id="L.area.rotation" step="1"></label>
-            <button class="btn" type="button" data-rot="area:-90" aria-label="Rotate drawing area 90 degrees clockwise">↻ 90°</button>
-            <button class="btn" type="button" data-rot="area:90" aria-label="Rotate drawing area 90 degrees counter-clockwise">↺ 90°</button>
-            <button class="btn" type="button" data-rot="area:=paper">Match paper</button>
-            <button class="btn" type="button" data-rot="area:=0">0°</button>
-          </div>
-          <p class="hint">Drag the round knob above a selected shape to rotate it (Shift snaps to 15°). Or press [ and ] to turn it 1° (with Shift, 15°).</p>
-          <div class="btns">
-            <button class="btn primary" type="button" id="fit">Fit to free space</button>
-            <button class="btn" type="button" id="center">Center</button>
-            <button class="btn" type="button" id="aspect" disabled>Match image shape</button>
-          </div>
-        </div>
-        <div class="panel sec">
-          <h2>Motion</h2>
-          <div class="g3">
-            <label class="f">Draw F<input type="number" id="L.feed.draw" step="100" min="100"></label>
-            <label class="f">Travel F<input type="number" id="L.feed.travel" step="100" min="100"></label>
-            <label class="f">Accel<input type="number" id="L.feed.accel" step="100" min="100"></label>
-          </div>
-          <p class="hint">Feeds are mm/min, acceleration mm/s². Lower values reduce ringing on the cantilever arm.</p>
-          <div class="btns">
-            <button class="btn" type="button" id="exportLayout">Save layout file</button>
-            <label class="btn" for="importLayout" style="display:inline-block">Load layout file</label>
-            <input type="file" id="importLayout" accept="application/json,.json" hidden>
-          </div>
-        </div>
+      <!-- Effect -->
+      <div class="pane" id="pane-effect" role="tabpanel" aria-labelledby="tab-effect" hidden>
+        <section class="group">
+          <div class="grouphead"><h2>Effect</h2><button class="link" type="button" id="resetParams">Reset</button></div>
+          <select id="effect" class="popup" aria-label="Effect"></select>
+          <p class="foot" id="effectDesc"></p>
+        </section>
+        <section class="group">
+          <h2>Settings</h2>
+          <div class="params" id="params"></div>
+        </section>
       </div>
-      <div id="pane-printer" class="rail" role="tabpanel" aria-labelledby="tab-printer" hidden>
-        <div class="panel sec">
-          <h2>Connection</h2>
-          <div class="g2">
-            <label class="f">IP address<input type="text" id="pr-ip" inputmode="decimal" placeholder="192.168.1.50" autocomplete="off"></label>
-            <label class="f">Serial number<input type="text" id="pr-serial" autocomplete="off"></label>
-            <label class="f" style="grid-column:1/-1">LAN access code<input type="password" id="pr-code" autocomplete="off"></label>
+
+      <!-- Bed -->
+      <div class="pane" id="pane-setup" role="tabpanel" aria-labelledby="tab-setup" hidden>
+        <details class="group" open>
+          <summary><h2>Drawing Area</h2></summary>
+          <div class="grid2">
+            <label class="field"><span>X</span><input type="number" id="L.area.x" step="0.5"></label>
+            <label class="field"><span>Y</span><input type="number" id="L.area.y" step="0.5"></label>
+            <label class="field"><span>Width</span><input type="number" id="L.area.w" step="0.5" min="10"></label>
+            <label class="field"><span>Height</span><input type="number" id="L.area.h" step="0.5" min="10"></label>
+            <label class="field"><span>Rotation °</span><input type="number" id="L.area.rotation" step="1"></label>
+            <label class="field"><span>Touch-off</span>
+              <select id="L.touch_off"><option value="fl">Front-left</option><option value="fr">Front-right</option><option value="bl">Back-left</option><option value="br">Back-right</option><option value="c">Center</option></select>
+            </label>
           </div>
-          <div class="btns">
-            <button class="btn primary" type="button" id="pr-save">Save</button>
-            <button class="btn" type="button" id="pr-test">Test connection</button>
+          <div class="btnrow tight">
+            <button class="btn small" type="button" data-rot="area:-90" title="Rotate 90° clockwise">↻ 90°</button>
+            <button class="btn small" type="button" data-rot="area:90" title="Rotate 90° counter-clockwise">↺ 90°</button>
+            <button class="btn small" type="button" data-rot="area:=paper">Match Paper</button>
+            <button class="btn small" type="button" data-rot="area:=0">0°</button>
+          </div>
+          <div class="btnrow tight">
+            <button class="btn small accent" type="button" id="fit">Fit to Free Space</button>
+            <button class="btn small" type="button" id="center">Center</button>
+            <button class="btn small" type="button" id="aspect" disabled>Match Picture</button>
+          </div>
+          <div class="srow sw"><label for="snap">Snap to 1 mm</label><input type="checkbox" class="switch" id="snap" checked></div>
+          <p class="foot">Drag the knob above a selected shape to rotate it (Shift snaps to 15°). Arrow keys nudge it 1 mm; [ and ] turn it 1°.</p>
+        </details>
+        <details class="group" open>
+          <summary><h2>Paper</h2></summary>
+          <div class="grid2">
+            <label class="field"><span>Size</span><select id="L.paper.size"><option value="A5">A5 · 148 × 210</option><option value="A6">A6 · 105 × 148</option></select></label>
+            <div class="field"><span>Orientation</span>
+              <div class="segmented mini" id="orient"><button type="button" data-o="portrait">Portrait</button><button type="button" data-o="landscape">Landscape</button></div>
+            </div>
+            <label class="field"><span>Left edge X</span><input type="number" id="L.paper.x" step="0.5"></label>
+            <label class="field"><span>Front edge Y</span><input type="number" id="L.paper.y" step="0.5"></label>
+            <label class="field"><span>Margin</span><input type="number" id="L.paper.margin" step="0.5" min="0"></label>
+            <label class="field"><span>Rotation °</span><input type="number" id="L.paper.rotation" step="1"></label>
+          </div>
+          <div class="btnrow tight">
+            <button class="btn small" type="button" data-rot="paper:-1">−1°</button>
+            <button class="btn small" type="button" data-rot="paper:1">+1°</button>
+            <button class="btn small" type="button" data-rot="paper:=0">Square Up</button>
+          </div>
+        </details>
+        <details class="group">
+          <summary><h2>Pen Holder</h2></summary>
+          <div class="grid3">
+            <label class="field" title="Pen tip minus nozzle, +X right"><span>Offset X</span><input type="number" id="L.pen.offset_x" step="0.5"></label>
+            <label class="field" title="Pen tip minus nozzle, +Y toward the back"><span>Offset Y</span><input type="number" id="L.pen.offset_y" step="0.5"></label>
+            <label class="field"><span>Pen width</span><input type="number" id="L.pen.width_mm" step="0.05" min="0.1"></label>
+            <label class="field" title="Nozzle height where the pen is set to touch the paper"><span>Touch-off Z</span><input type="number" id="L.z.touch" step="0.1" min="1"></label>
+            <label class="field" title="How far below touch-off to draw. Rigid holders: 0.1–0.2"><span>Press</span><input type="number" id="L.z.press" step="0.05" min="0" max="1"></label>
+            <label class="field"><span>Pen lift</span><input type="number" id="L.z.hop" step="0.1" min="0.3"></label>
+          </div>
+        </details>
+        <details class="group">
+          <summary><h2>Clips</h2></summary>
+          <ul class="cliplist" id="cliplist"></ul>
+          <div class="grid2">
+            <label class="field"><span>Width</span><input type="number" id="L.clip_w" step="1" min="4"></label>
+            <label class="field"><span>Depth</span><input type="number" id="L.clip_d" step="1" min="4"></label>
+            <label class="field"><span>Height</span><input type="number" id="L.clip_height" step="1" min="1"></label>
+            <label class="field"><span>Keep-out</span><input type="number" id="L.clip_keep_out" step="0.5" min="0"></label>
+          </div>
+          <div class="btnrow tight"><button class="btn small" type="button" id="addClip">Add Clip</button></div>
+        </details>
+        <details class="group">
+          <summary><h2>Motion &amp; Layout File</h2></summary>
+          <div class="grid3">
+            <label class="field"><span>Draw F</span><input type="number" id="L.feed.draw" step="100" min="100"></label>
+            <label class="field"><span>Travel F</span><input type="number" id="L.feed.travel" step="100" min="100"></label>
+            <label class="field"><span>Accel</span><input type="number" id="L.feed.accel" step="100" min="100"></label>
+          </div>
+          <p class="foot">Feeds in mm/min, acceleration in mm/s².</p>
+          <div class="btnrow tight">
+            <button class="btn small" type="button" id="exportLayout">Save Layout…</button>
+            <label class="btn small" for="importLayout">Load Layout…</label>
+          </div>
+        </details>
+      </div>
+
+      <!-- Printer -->
+      <div class="pane" id="pane-printer" role="tabpanel" aria-labelledby="tab-printer" hidden>
+        <section class="group">
+          <h2>Connection</h2>
+          <label class="field wide"><span>IP address</span><input type="text" id="pr-ip" inputmode="decimal" placeholder="192.168.1.50" autocomplete="off"></label>
+          <label class="field wide"><span>Serial number</span><input type="text" id="pr-serial" autocomplete="off"></label>
+          <label class="field wide"><span>LAN access code</span><input type="password" id="pr-code" autocomplete="off"></label>
+          <div class="btnrow tight">
+            <button class="btn small accent" type="button" id="pr-save">Save</button>
+            <button class="btn small" type="button" id="pr-test">Test Connection</button>
           </div>
           <p class="msg" id="pr-msg" role="status"></p>
-          <p class="hint">On the printer, turn on <b>LAN Only mode</b>; its screen shows the IP address and access code. To start jobs from here, also turn on <b>Developer Mode</b> and restart the printer. Developer Mode disconnects the Bambu cloud and the Handy app while it's on.</p>
-          <p class="hint">The access code is stored only on this computer, in a file only you can read. It is never sent back to the page.</p>
-        </div>
-        <div class="panel sec">
-          <h2>Project template</h2>
-          <p class="desc" id="tpl-info">No template yet. Plain .gcode will be uploaded.</p>
-          <label class="f">Choose a .gcode.3mf<input type="file" id="tpl-file" accept=".3mf"></label>
-          <div class="btns"><button class="btn" type="button" id="tpl-remove">Remove template</button></div>
-          <p class="hint">Bambu printers start jobs from .gcode.3mf files. In Bambu Studio, slice any small model for the A1 mini, then choose File → Export → Export plate sliced file. BambuPlot puts each plot inside that file. Nothing from the model gets printed.</p>
-        </div>
-        <div class="panel sec">
-          <h2>Advanced</h2>
-          <label class="f">Start URL prefix<input type="text" id="pr-url" autocomplete="off"></label>
-          <p class="hint">Leave this as file:///sdcard/ unless uploads work but jobs won't start. Some firmware expects ftp:/// instead.</p>
-        </div>
+          <p class="foot">On the printer, turn on <b>LAN Only mode</b>; its screen shows the IP and access code. To start jobs from here, also turn on <b>Developer Mode</b> and restart the printer. The code is stored only on this Mac.</p>
+        </section>
+        <section class="group">
+          <h2>Project Template</h2>
+          <p class="foot" id="tpl-info">No template yet. Plain .gcode will be uploaded.</p>
+          <div class="btnrow tight">
+            <label class="btn small" for="tpl-file">Choose .gcode.3mf…</label>
+            <button class="btn small" type="button" id="tpl-remove">Remove</button>
+          </div>
+          <input type="file" id="tpl-file" accept=".3mf" hidden>
+          <p class="foot">In Bambu Studio, slice any small model for the A1 mini, then File → Export → Export plate sliced file.</p>
+        </section>
+        <details class="group">
+          <summary><h2>Advanced</h2></summary>
+          <label class="field wide"><span>Start URL prefix</span><input type="text" id="pr-url" autocomplete="off"></label>
+          <p class="foot">Leave as file:///sdcard/ unless uploads work but jobs won't start; then try ftp:///.</p>
+        </details>
       </div>
     </aside>
-  </div>
+  </main>
 
-  <div class="below">
-    <section class="panel sec">
-      <h2>Job</h2>
-      <div class="nums">
-        <div><span>Ink</span><b id="nInk">–</b></div>
-        <div><span>Pen lifts</span><b id="nLifts">–</b></div>
-        <div><span>Travel</span><b id="nTravel">–</b></div>
-        <div><span>Time</span><b id="nTime">–</b></div>
-      </div>
-      <div class="btns">
-        <button class="btn primary" type="button" id="dlG">Download G-code</button>
-        <button class="btn" type="button" id="dl3mf" title="For Bambu Connect or the SD card. Needs a project template (Printer tab).">Download .gcode.3mf</button>
-        <button class="btn" type="button" id="dlSmoke">Smoke test</button>
-        <button class="btn" type="button" id="dlPress">Press ladder</button>
-        <button class="btn" type="button" id="sendOpen">Send to printer…</button>
-      </div>
-      <div class="sendbox" id="sendbox" hidden>
-        <label class="f">What to send
-          <select id="send-kind"><option value="art">This artwork</option><option value="smoke">Smoke test</option><option value="press">Press ladder</option></select>
-        </label>
-        <p class="warnline"><b>Open in Bambu Connect</b> sends the job through your Bambu account, so it works away from home. You pick the printer in Bambu Connect. <b>Upload only</b> and <b>Upload and start</b> use your local network.</p>
-        <p class="warnline">Starting a job makes the printer home right away. The pen holder must be empty and nothing can be near the nozzle. The pen goes in at Pause 1.</p>
-        <label class="f row"><input type="checkbox" id="send-ack"> The holder is empty and the bed is clear</label>
-        <div class="btns" style="margin-top:0">
-          <button class="btn" type="button" id="send-connect" disabled>Open in Bambu Connect</button>
-          <button class="btn" type="button" id="send-upload">Upload only</button>
-          <button class="btn primary" type="button" id="send-start" disabled>Upload and start</button>
-          <button class="btn" type="button" id="send-cancel">Close</button>
-        </div>
-        <p class="msg" id="send-msg" role="status"></p>
-      </div>
-      <div class="problems" id="problems" hidden></div>
-      <ol class="steps">
-        <li>Home happens first with no pen in the holder.</li>
-        <li>Pause 1 at the red cross: clip the paper, push the pen down until it touches, tighten.</li>
-        <li>Pause 2 after the outline trace: check where the drawing will land.</li>
-        <li>Pause 3 after the small L mark: re-seat the pen if the line is faint.</li>
-      </ol>
-      <p class="hint">Time ignores acceleration, so real jobs run a little longer. Run the smoke test first on new hardware.</p>
-    </section>
-    <section class="panel sec checks" aria-live="polite">
-      <h2>Safety checks</h2>
-      <ul id="checks"></ul>
-    </section>
-  </div>
+  <!-- ============================== status bar ============================== -->
+  <footer class="statusbar">
+    <div class="sb-replay">
+      <label for="progress">Replay</label>
+      <input type="range" id="progress" min="0" max="1000" value="1000">
+      <button class="iconbtn" type="button" id="travelBtn" aria-pressed="false" title="Show pen-up moves">
+        <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M3 15 8 6l4 8 5-9" stroke-dasharray="2 2"/></svg>
+      </button>
+      <button class="iconbtn" type="button" id="imgBtn" aria-pressed="true" title="Show the source picture under the plot">
+        <svg viewBox="0 0 20 20" aria-hidden="true"><rect x="3" y="4" width="14" height="12" rx="2"/><path d="m4 14 4-4 3 3 2-2 3 3"/></svg>
+      </button>
+      <input type="checkbox" id="showTravel" hidden><input type="checkbox" id="showImg" checked hidden>
+    </div>
+    <div class="sb-stats" aria-label="Job">
+      <span title="Ink line length"><b id="nInk">–</b> ink</span>
+      <span title="Times the pen lifts"><b id="nLifts">–</b> lifts</span>
+      <span title="Pen-up travel"><b id="nTravel">–</b> travel</span>
+      <span title="Estimate; ignores acceleration"><b id="nTime">–</b></span>
+    </div>
+    <button class="badge" type="button" id="checksBtn" popovertarget="checksPop">Checking…</button>
+  </footer>
 </div>
 
+<!-- ============================== popovers ============================== -->
+<div popover id="dlMenu" class="menu" role="menu">
+  <button type="button" id="dlG" role="menuitem">G-code <kbd>⌘S</kbd></button>
+  <button type="button" id="dl3mf" role="menuitem" title="For Bambu Connect or the SD card. Needs a project template.">Bambu project (.gcode.3mf)</button>
+  <hr>
+  <button type="button" id="dlSmoke" role="menuitem">Smoke test</button>
+  <button type="button" id="dlPress" role="menuitem">Press ladder</button>
+</div>
+
+<div popover id="checksPop" class="popover">
+  <h3>Safety Checks</h3>
+  <ul class="checks" id="checks"></ul>
+</div>
+
+<!-- ============================== send sheet ============================== -->
+<dialog id="sendSheet" class="sheet" aria-labelledby="sendTitle">
+  <div id="sendbox">
+    <h2 id="sendTitle">Send to Printer</h2>
+    <label class="field wide"><span>What to send</span>
+      <select id="send-kind"><option value="art">This artwork</option><option value="smoke">Smoke test</option><option value="press">Press ladder</option></select>
+    </label>
+    <ol class="steps">
+      <li>The printer homes first, so the pen holder must be empty.</li>
+      <li><b>Pause 1</b> at the red cross: clip the paper, push the pen down until it touches, tighten.</li>
+      <li><b>Pause 2</b> after the outline trace: check where the drawing will land.</li>
+      <li><b>Pause 3</b> after the small L mark: re-seat the pen if the line is faint.</li>
+    </ol>
+    <div class="srow sw ack"><label for="send-ack">The holder is empty and the bed is clear</label><input type="checkbox" class="switch" id="send-ack"></div>
+    <p class="msg" id="send-msg" role="status"></p>
+    <div class="sheet-buttons">
+      <button class="btn" type="button" id="send-cancel">Close</button>
+      <span class="spacer"></span>
+      <button class="btn" type="button" id="send-connect" disabled title="Sends through your Bambu account (works away from home)">Open in Bambu Connect</button>
+      <button class="btn" type="button" id="send-upload" title="Uploads over your network; start it on the printer">Upload Only</button>
+      <button class="btn accent" type="button" id="send-start" disabled>Upload and Start</button>
+    </div>
+  </div>
+</dialog>
+
+<!-- ============================== picture editor ============================== -->
 <dialog id="editor" aria-labelledby="edTitle">
   <div class="ed-wrap">
     <div class="ed-bar">
-      <h2 id="edTitle">Edit picture</h2>
-      <div class="seg" id="edTools" role="group" aria-label="Tool">
-        <button type="button" data-tool="crop" aria-pressed="false">Crop</button>
-        <button type="button" data-tool="box" aria-pressed="true">Box select</button>
-        <button type="button" data-tool="erase" aria-pressed="false">Erase</button>
-        <button type="button" data-tool="keep" aria-pressed="false">Restore</button>
+      <h2 id="edTitle">Edit Picture</h2>
+      <div class="segmented" id="edTools" role="group" aria-label="Tool">
+        <button type="button" data-tool="crop" aria-pressed="false" title="C">Crop</button>
+        <button type="button" data-tool="box" aria-pressed="true" title="B">Select</button>
+        <button type="button" data-tool="erase" aria-pressed="false" title="E">Erase</button>
+        <button type="button" data-tool="keep" aria-pressed="false" title="R">Restore</button>
       </div>
       <div class="ed-group" id="edCropOpts" hidden>
-        <label class="f">Shape<select id="edAspect"><option value="free">Free</option><option value="area">Drawing area</option><option value="original">Original</option><option value="square">Square</option></select></label>
-        <button class="btn" type="button" id="edMatchArea" title="Reshape the drawing area to this crop">Match area to crop</button>
-        <button class="btn" type="button" id="edCropReset">Reset crop</button>
+        <select id="edAspect" aria-label="Crop shape"><option value="free">Free shape</option><option value="area">Drawing area</option><option value="original">Original</option><option value="square">Square</option></select>
+        <button class="btn small" type="button" id="edMatchArea" title="Reshape the drawing area to this crop">Match Area</button>
+        <button class="btn small" type="button" id="edCropReset">Reset Crop</button>
       </div>
       <div class="ed-group" id="edBrushOpts">
-      <label class="f slider ed-size" for="edSize"><span class="lab">Brush size<output id="edSize.out">28 px</output></span><input type="range" id="edSize" min="4" max="160" step="1" value="28"></label>
-      <label class="f row" title="The brush finds the subject's real edge instead of painting exactly"><input type="checkbox" id="edSmart"> Smart edges</label>
+        <div class="srow ed-size"><label for="edSize">Brush</label><input type="range" id="edSize" min="4" max="160" step="1" value="28"><output id="edSize.out">28 px</output></div>
+        <div class="srow sw" title="The brush finds the subject's real edge instead of painting exactly"><label for="edSmart">Smart edges</label><input type="checkbox" class="switch" id="edSmart"></div>
       </div>
-      <div class="btns ed-actions">
-        <button class="btn" type="button" id="edAuto">Remove background</button>
-        <button class="btn" type="button" id="edAI" hidden>AI remove</button>
-        <button class="btn" type="button" id="edInvert">Invert</button>
-        <button class="btn" type="button" id="edShrink" title="Shrink the kept area a little">Shrink</button>
-        <button class="btn" type="button" id="edGrow" title="Grow the kept area a little">Grow</button>
-        <button class="btn" type="button" id="edUndo">Undo</button>
-        <button class="btn" type="button" id="edReset">Reset</button>
-        <button class="btn primary" type="button" id="edDone">Done</button>
-      </div>
+    </div>
+    <div class="ed-bar secondary">
+      <button class="btn small" type="button" id="edAuto">Remove Background</button>
+      <button class="btn small" type="button" id="edAI" hidden>AI Remove</button>
+      <button class="btn small" type="button" id="edInvert">Invert</button>
+      <button class="btn small" type="button" id="edShrink" title="Shrink the kept area a little">Shrink</button>
+      <button class="btn small" type="button" id="edGrow" title="Grow the kept area a little">Grow</button>
+      <span class="spacer"></span>
+      <button class="btn small" type="button" id="edUndo" title="⌘Z">Undo</button>
+      <button class="btn small" type="button" id="edReset">Reset</button>
+      <button class="btn small accent" type="button" id="edDone">Done</button>
     </div>
     <div class="ed-stage" id="edStage">
       <div class="ed-canvas" id="edCanvas"><canvas id="edImg"></canvas><canvas id="edOver"></canvas><canvas id="edDraw"></canvas></div>
     </div>
-    <p class="ed-status" id="edStatus" role="status">Drag a box around the subject, or press Remove background.</p>
+    <p class="ed-status" id="edStatus" role="status">Drag a box around the subject, or press Remove Background.</p>
   </div>
 </dialog>
 
-<script>
-const $=id=>document.getElementById(id);
-const PAPERS={A5:[148,210],A6:[105,148]};
-const STORE='bambuplot.v1';
-const PLAN_KEYS=new Set(['area.w','area.h','pen.width_mm','touch_off']);
-let L=null, DEF=null, effects=[], job={effect:'waves',params:{},prep:{},image:null};
-let plan=null, checks=[], sel='area', drag=null, V=null, snap=true;
-let lineStr=[], travelStr=[], totalPts=0, planSeq=0;
-
-/* ---------- geometry (printer frame: +Y back, angles CCW in degrees) ---------- */
-const R=(x,y,w,h)=>({x,y,w,h});
-const x2=r=>r.x+r.w, y2=r=>r.y+r.h;
-const grow=(r,m)=>R(r.x-m,r.y-m,r.w+2*m,r.h+2*m);
-const BED=R(0,0,180,180);
-const normAng=a=>{a=((a+180)%360+360)%360-180;return Math.round(a*10)/10||0};
-const rotPt=(x,y,deg)=>{const t=deg*Math.PI/180,c=Math.cos(t),s=Math.sin(t);return [x*c-y*s,x*s+y*c]};
-function paperBox(){let [w,h]=PAPERS[L.paper.size];if(L.paper.orientation==='landscape')[w,h]=[h,w];return {x:L.paper.x,y:L.paper.y,w,h,rot:L.paper.rotation||0}}
-const areaBox=()=>({...L.area,rot:L.area.rotation||0});
-const centerOf=b=>[b.x+b.w/2,b.y+b.h/2];
-/* local point (origin at the box's front-left corner, along its edges) → world */
-function toWorld(b,lx,ly){const [cx,cy]=centerOf(b),[dx,dy]=rotPt(lx-b.w/2,ly-b.h/2,b.rot);return [cx+dx,cy+dy]}
-const corners=b=>[[0,0],[b.w,0],[b.w,b.h],[0,b.h]].map(([u,v])=>toWorld(b,u,v));
-const clipRect=c=>R(c.x,c.y,L.clip_w,L.clip_d);
-const keepouts=()=>L.clips.map(c=>grow(clipRect(c),L.clip_keep_out));
-const reach=()=>R(L.pen.offset_x,L.pen.offset_y,180,180);
-const snapv=v=>snap?Math.round(v):Math.round(v*10)/10;
-const fmt=n=>String(Math.round(n*100)/100);
-function localTouch(){const a=L.area;return {fl:[0,0],fr:[a.w,0],bl:[0,a.h],br:[a.w,a.h],c:[a.w/2,a.h/2]}[L.touch_off]}
-
-/* ---------- persistence ---------- */
-function deepMerge(base,over){
-  if(Array.isArray(base))return Array.isArray(over)?over:base;
-  if(base&&typeof base==='object'){const o={};for(const k in base)o[k]=deepMerge(base[k],over?.[k]);return o}
-  return (over!==undefined&&typeof over===typeof base)?over:base;
-}
-let saveT=0;
-function save(){clearTimeout(saveT);saveT=setTimeout(()=>{try{localStorage.setItem(STORE,JSON.stringify({layout:L,effect:job.effect,params:job.params,prep:job.prep,aiModel:job.aiModel}))}catch(_){}},300)}
-function restore(){try{return JSON.parse(localStorage.getItem(STORE)||'null')}catch(_){return null}}
-
-/* ---------- server calls ---------- */
-const post=(url,body)=>fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
-const planBody=()=>({layout:L,effect:job.effect,params:job.params[job.effect]||{},prep:job.prep,image_id:job.image?.id||null});
-function setStatus(t,err){const s=$('status');s.textContent=t;s.classList.toggle('err',!!err)}
-
-let planT=0;
-function schedulePlan(delay=250){clearTimeout(planT);planT=setTimeout(runPlan,delay);$('inkg').classList.add('stale')}
-async function runPlan(){
-  const seq=++planSeq;setStatus('Updating preview…');
-  try{
-    const r=await post('/api/plan',planBody());
-    if(seq!==planSeq)return;
-    if(r.status===404&&job.image){job.image=null;renderThumb();buildEffects();setStatus('The server lost the file (it was restarted). Choose it again.',true);schedulePlan(0);return}
-    if(!r.ok)throw new Error((await r.json().catch(()=>({}))).detail||r.statusText);
-    const d=await r.json();if(seq!==planSeq)return;
-    plan={lines:d.lines,stats:d.stats,w:L.area.w,h:L.area.h};checks=d.checks;
-    buildInk();renderChecks();renderOver();renderStats();setStatus(`${job.effect} · ${d.stats.points.toLocaleString()} points`);
-  }catch(e){if(seq===planSeq)setStatus('Preview failed: '+e.message,true)}
-  finally{if(seq===planSeq)$('inkg').classList.remove('stale')}
-}
-let chkBusy=false,chkAgain=false;
-async function refreshChecks(){
-  if(chkBusy){chkAgain=true;return}chkBusy=true;
-  try{const r=await post('/api/checks',L);if(r.ok){checks=await r.json();renderChecks();renderOver()}}catch(_){}
-  chkBusy=false;if(chkAgain){chkAgain=false;refreshChecks()}
-}
-async function fitRequest(mode){
-  setStatus(mode==='fit'?'Finding the largest safe area…':'Centering…');
-  try{
-    const r=await post('/api/fit/'+mode,L),d=await r.json();
-    if(!r.ok){setStatus(typeof d.detail==='string'?d.detail:'No safe spot found.',true);return}
-    const resized=d.w!==L.area.w||d.h!==L.area.h;
-    L.area={...L.area,x:Math.round(d.x*10)/10,y:Math.round(d.y*10)/10,w:d.w,h:d.h};
-    changed(resized?['area.w']:['area.x']);setStatus(mode==='fit'?`Fitted ${fmt(d.w)} × ${fmt(d.h)} mm`:'Centered');
-  }catch(_){setStatus('Could not reach the BambuPlot server.',true)}
-}
-async function download(url,body,name){
-  $('problems').hidden=true;
-  try{
-    const r=await post(url,body);
-    if(!r.ok){const e=await r.json().catch(()=>({}));showProblems(e.detail);return}
-    const blob=await r.blob(),a=document.createElement('a');
-    a.href=URL.createObjectURL(blob);a.download=name;document.body.appendChild(a);a.click();a.remove();
-    setTimeout(()=>URL.revokeObjectURL(a.href),4000);setStatus(`Saved ${name}`);
-  }catch(e){showProblems({message:'Could not reach the BambuPlot server. Is `bambuplot serve` still running?'})}
-}
-function showProblems(d){
-  const p=$('problems');p.hidden=false;
-  const msg=typeof d==='string'?d:(d?.message||'The server refused this job.');
-  const list=(d?.problems||[]).map(x=>`<li>${esc(x)}</li>`).join('');
-  p.innerHTML=`<b>${esc(msg)}</b>${list?`<ul>${list}</ul>`:''}`;
-}
-const esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
-
-/* ---------- rendering ---------- */
-const svg=$('plate');
-function computeView(){
-  const pts=[...corners(paperBox()),...corners({...reach(),rot:0}),...corners({...BED,rot:0}),...L.clips.flatMap(c=>corners({...clipRect(c),rot:0}))];
-  const xs=pts.map(p=>p[0]),ys=pts.map(p=>p[1]);
-  V={x0:Math.min(...xs)-14,y0:Math.min(...ys)-16,x1:Math.max(...xs)+10,y1:Math.max(...ys)+18};
-  svg.setAttribute('viewBox',`0 0 ${V.x1-V.x0} ${V.y1-V.y0}`);
-}
-const rA=r=>`x="${(r.x-V.x0).toFixed(2)}" y="${(V.y1-y2(r)).toFixed(2)}" width="${Math.max(0,r.w).toFixed(2)}" height="${Math.max(0,r.h).toFixed(2)}"`;
-const X=x=>(x-V.x0).toFixed(2),Y=y=>(V.y1-y).toFixed(2);
-/* SVG rotate() is clockwise on screen; our angles are CCW seen from above. */
-const rotAttr=b=>{const [cx,cy]=centerOf(b);return b.rot?`transform="rotate(${-b.rot} ${X(cx)} ${Y(cy)})"`:''};
-const isBad=()=>checks.some(c=>c.state==='bad');
-
-function renderUnder(){
-  const p=paperBox(),pr=R(p.x,p.y,p.w,p.h),m=L.paper.margin;
-  let h=`<defs><mask id="offbed" maskUnits="userSpaceOnUse" x="0" y="0" width="${V.x1-V.x0}" height="${V.y1-V.y0}"><rect x="0" y="0" width="${V.x1-V.x0}" height="${V.y1-V.y0}" fill="white"></rect><rect ${rA(BED)} fill="black"></rect></mask></defs>`;
-  h+=`<rect class="bed" ${rA(BED)} rx="2"></rect>`;
-  for(let i=10;i<180;i+=10)h+=`<line class="grid" x1="${X(i)}" y1="${Y(0)}" x2="${X(i)}" y2="${Y(180)}"></line><line class="grid" x1="${X(0)}" y1="${Y(i)}" x2="${X(180)}" y2="${Y(i)}"></line>`;
-  h+=`<text class="bedlbl" x="${X(178)}" y="${Y(176)}" text-anchor="end">A1 MINI PLATE 180 × 180</text>`;
-  h+=`<g ${rotAttr(p)}><rect class="paper${sel==='paper'?' sel':''}" data-drag="paper" ${rA(pr)}></rect></g>`;
-  h+=`<g mask="url(#offbed)"><g ${rotAttr(p)}><rect class="overhang" ${rA(pr)}></rect></g></g>`;
-  h+=`<g ${rotAttr(p)}><rect class="pmargin" ${rA(R(p.x+m,p.y+m,p.w-2*m,p.h-2*m))}></rect>`;
-  h+=`<text class="paperlbl" x="${X(p.x+2)}" y="${Y(y2(pr)-4.5)}">${L.paper.size} ${p.w} × ${p.h}${p.rot?` · ${fmt(p.rot)}°`:''}</text></g>`;
-  keepouts().forEach(k=>h+=`<rect class="keep" ${rA(k)}></rect>`);
-  $('under').innerHTML=h;
-}
-function knob(b,kind){
-  const [bx,by]=toWorld(b,b.w/2,b.h),[kx,ky]=toWorld(b,b.w/2,b.h+9);
-  return `<line class="knobline" x1="${X(bx)}" y1="${Y(by)}" x2="${X(kx)}" y2="${Y(ky)}"></line>`+
-    `<circle class="knob" data-drag="rot-${kind}" cx="${X(kx)}" cy="${Y(ky)}" r="2.6"><title>Drag to rotate</title></circle>`+
-    `<text class="angle" x="${(kx-V.x0+4).toFixed(2)}" y="${(V.y1-ky+1.2).toFixed(2)}">${fmt(b.rot)}°</text>`;
-}
-function renderOver(){
-  const a=areaBox(),ar=R(a.x,a.y,a.w,a.h);let h='';
-  if(L.pen.offset_x||L.pen.offset_y){const r=reach();h+=`<rect class="reach" ${rA(r)}></rect><text class="offlbl" x="${X(x2(r))}" y="${(V.y1-y2(r)-1.5).toFixed(2)}" text-anchor="end" style="fill:var(--warn)">pen reach</text>`}
-  h+=`<g ${rotAttr(a)}><rect class="area${sel==='area'?' sel':''}${isBad()?' bad':''}" data-drag="area" ${rA(ar)}></rect>`;
-  h+=`<text class="dim" x="${X(a.x+a.w/2)}" y="${(V.y1-a.y+5).toFixed(2)}" text-anchor="middle">${fmt(a.w)} × ${fmt(a.h)} mm</text></g>`;
-  [['fl',0,0],['fr',a.w,0],['bl',0,a.h],['br',a.w,a.h]].forEach(([k,u,v])=>{
-    const [x,y]=toWorld(a,u,v);
-    h+=`<rect class="handle" data-drag="h-${k}" x="${(x-V.x0-2).toFixed(2)}" y="${(V.y1-y-2).toFixed(2)}" width="4" height="4" rx=".6" style="cursor:crosshair"></rect>`;
-  });
-  const [lx,ly]=localTouch(),[tx,ty]=toWorld(a,lx,ly);
-  h+=`<path class="touch" d="M${X(tx-3)} ${Y(ty)}H${X(tx+3)}M${X(tx)} ${Y(ty-3)}V${Y(ty+3)}"></path><circle class="touch" cx="${X(tx)}" cy="${Y(ty)}" r="1.6"></circle>`;
-  L.clips.forEach((c,i)=>{const r=clipRect(c);h+=`<rect class="clip${sel==='clip:'+i?' sel':''}" data-drag="clip:${i}" ${rA(r)} rx="1"></rect><text class="cliplbl" x="${X(r.x+r.w/2)}" y="${(V.y1-r.y-r.h/2+1.3).toFixed(2)}" text-anchor="middle">${i+1}</text>`});
-  if(sel==='area')h+=knob(a,'area');
-  if(sel==='paper')h+=knob(paperBox(),'paper');
-  h+=`<path class="axis" d="M${X(0)} ${Y(0)}m0 7h12M${X(0)} ${Y(0)}m-7 0v-12"></path><path class="axisfill" d="M${X(12)} ${(V.y1+7).toFixed(2)}l-2.4 -1.3v2.6zM${(-V.x0-7).toFixed(2)} ${Y(12)}l-1.3 2.4h2.6z"></path>`;
-  h+=`<text class="offlbl" x="${X(14)}" y="${(V.y1+8.2).toFixed(2)}">X</text><text class="offlbl" x="${(-V.x0-8.2).toFixed(2)}" y="${Y(14)}">Y</text><text class="offlbl" x="${X(0)}" y="${(V.y1+12.5).toFixed(2)}" text-anchor="middle">0,0</text>`;
-  $('over').innerHTML=h;
-}
-function placeInk(){
-  const a=areaBox(),g=$('inkg'),pw=plan?.w||a.w,ph=plan?.h||a.h,[cx,cy]=centerOf(a);
-  g.setAttribute('transform',`translate(${X(cx)} ${Y(cy)}) rotate(${-a.rot}) scale(${a.w/pw} ${a.h/ph}) translate(${-pw/2} ${-ph/2})`);
-  const c=$('inkClipRect');c.setAttribute('width',pw);c.setAttribute('height',ph);
-  const raster=srcKind()==='raster',turn=raster?(+job.prep.rotate||0):0,side=turn===90||turn===270;
-  const iw=job.image?.w||1,ih=job.image?.h||1,cr=(raster&&job.prep.crop)||[0,0,1,1];
-  const sw=side?ph:pw,sh=side?pw:ph,wrap=$('srcwrap'),im=$('srcimg');
-  wrap.setAttribute('x',(pw-sw)/2);wrap.setAttribute('y',(ph-sh)/2);wrap.setAttribute('width',sw);wrap.setAttribute('height',sh);
-  wrap.setAttribute('viewBox',`${cr[0]*iw} ${cr[1]*ih} ${(cr[2]-cr[0])*iw} ${(cr[3]-cr[1])*ih}`);
-  wrap.setAttribute('preserveAspectRatio',!raster||job.prep.fit==='fit'?'xMidYMid meet':'xMidYMid slice');
-  im.setAttribute('width',iw);im.setAttribute('height',ih);
-  $('srcturn').setAttribute('transform',turn?`rotate(${turn} ${pw/2} ${ph/2})`:'');
-  $('srcturn').setAttribute('visibility',job.image&&$('showImg').checked?'visible':'hidden');
-  $('ink').style.strokeWidth=L.pen.width_mm;
-}
-function buildInk(){
-  lineStr=[];travelStr=[];totalPts=0;let prev=null;const h=plan.h;
-  for(const l of plan.lines){
-    const pts=l.length===1?[l[0],[l[0][0]+0.01,l[0][1]]]:l;
-    let s='M'+pts[0][0]+' '+(h-pts[0][1]);for(let i=1;i<pts.length;i++)s+='L'+pts[i][0]+' '+(h-pts[i][1]);
-    lineStr.push(s);totalPts+=l.length;
-    travelStr.push(prev?`M${prev[0]} ${h-prev[1]}L${l[0][0]} ${h-l[0][1]}`:'');prev=l[l.length-1];
-  }
-  drawProgress();placeInk();
-}
-function drawProgress(){
-  if(!plan)return;const f=+$('progress').value/1000;
-  let ink='',tr='';
-  if(f>=1){ink=lineStr.join('');tr=travelStr.join('')}
-  else{
-    let budget=Math.round(totalPts*f);const h=plan.h;
-    for(let i=0;i<plan.lines.length&&budget>0;i++){
-      const l=plan.lines[i];tr+=travelStr[i];
-      if(l.length<=budget){ink+=lineStr[i];budget-=l.length}
-      else{let s='M'+l[0][0]+' '+(h-l[0][1]);for(let k=1;k<budget;k++)s+='L'+l[k][0]+' '+(h-l[k][1]);ink+=s;budget=0}
-    }
-  }
-  $('ink').setAttribute('d',ink);$('travel').setAttribute('d',$('showTravel').checked?tr:'');
-}
-function renderChecks(){
-  $('checks').innerHTML=checks.map(c=>`<li><span class="chip ${c.state}">${{ok:'ok',warn:'check',bad:'fail'}[c.state]}</span><b>${esc(c.title)}</b><small>${esc(c.detail)}</small></li>`).join('');
-  $('dlG').disabled=$('dl3mf').disabled=$('dlSmoke').disabled=$('dlPress').disabled=$('sendOpen').disabled=isBad();
-}
-function renderStats(){
-  const s=plan?.stats;if(!s)return;
-  $('nInk').textContent=`${s.draw_m} m`;$('nLifts').textContent=s.pen_lifts.toLocaleString();
-  $('nTravel').textContent=`${s.travel_m} m`;$('nTime').textContent=s.minutes<60?`${Math.max(1,Math.round(s.minutes))} min`:`${Math.floor(s.minutes/60)} h ${Math.round(s.minutes%60)} m`;
-}
-function render(){if(!drag)computeView();renderUnder();renderOver();placeInk();syncInputs()}
-
-/* ---------- inputs ---------- */
-const getP=(o,p)=>p.split('.').reduce((a,k)=>a?.[k],o);
-const setP=(o,p,v)=>{const ks=p.split('.'),l=ks.pop();ks.reduce((a,k)=>a[k],o)[l]=v};
-const layoutInputs=[...document.querySelectorAll('[id^="L."]')];
-const prepInputs=[...document.querySelectorAll('input[id^="P."],select[id^="P."]')];
-function syncInputs(){
-  for(const el of layoutInputs){if(el===document.activeElement)continue;const v=getP(L,el.id.slice(2));el.value=typeof v==='number'?Math.round(v*100)/100:v}
-  for(const el of prepInputs){const v=job.prep[el.id.slice(2)];if(el.type==='range'){const o=$(el.id+'.out');if(o)o.textContent=fmtVal(v,el.step,el.dataset.unit||'')}if(el===document.activeElement)continue;if(el.type==='checkbox')el.checked=!!v;else el.value=v}
-  document.querySelectorAll('#orient button').forEach(b=>b.setAttribute('aria-pressed',b.dataset.o===L.paper.orientation));
-  $('cliplist').innerHTML=L.clips.map((c,i)=>`<li data-i="${i}" class="${sel==='clip:'+i?'sel':''}"><span>Clip ${i+1} · X ${fmt(c.x)} Y ${fmt(c.y)}</span><button type="button" aria-label="Remove clip ${i+1}" data-rm="${i}">×</button></li>`).join('');
-  $('aspect').disabled=!job.image;
-}
-function changed(keys){
-  render();refreshChecks();save();
-  if(keys.some(k=>PLAN_KEYS.has(k)||k.startsWith('feed.')||k.startsWith('z.')))schedulePlan();
-}
-for(const el of layoutInputs)el.addEventListener('input',()=>{
-  const key=el.id.slice(2);let v=el.value;
-  if(el.type==='number'){v=parseFloat(v);if(!isFinite(v))return;if(el.min!==''&&v<+el.min)return;if(el.max!==''&&v>+el.max)return}
-  if(key.endsWith('rotation'))v=normAng(v);
-  setP(L,key,v);changed([key]);
-});
-for(const el of prepInputs)el.addEventListener('input',()=>{
-  const key=el.id.slice(2);let v=el.type==='checkbox'?el.checked:el.dataset.kind==='text'?el.value:parseFloat(el.value);
-  if(el.type==='number'&&(!isFinite(v)||(el.min!==''&&v<+el.min)))return;
-  job.prep[key]=v;if(el.type==='range'){const o=$(el.id+'.out');if(o)o.textContent=fmtVal(v,el.step,el.dataset.unit||'')}save();placeInk();schedulePlan(400);
-});
-document.querySelectorAll('#orient button').forEach(b=>b.onclick=()=>{
-  if(L.paper.orientation===b.dataset.o)return;const [cx,cy]=centerOf(paperBox());
-  L.paper.orientation=b.dataset.o;const q=paperBox();L.paper.x=snapv(cx-q.w/2);L.paper.y=snapv(cy-q.h/2);changed(['paper']);
-});
-/* rotation buttons: data-rot="area:90" adds, "area:=0" sets, "area:=paper" copies the paper angle */
-function rotate(target,spec){
-  const obj=target==='paper'?L.paper:L.area,cur=obj.rotation||0;
-  obj.rotation=normAng(spec==='=paper'?L.paper.rotation:spec.startsWith('=')?+spec.slice(1):cur+ +spec);
-  sel=target;changed([target+'.rotation']);
-}
-document.querySelectorAll('[data-rot]').forEach(b=>b.onclick=()=>{const [t,s]=b.dataset.rot.split(':');rotate(t,s)});
-$('cliplist').addEventListener('click',e=>{
-  const rm=e.target.closest('[data-rm]');if(rm){L.clips.splice(+rm.dataset.rm,1);sel='area';changed(['clips']);return}
-  const li=e.target.closest('li');if(li){sel='clip:'+li.dataset.i;render();svg.focus()}
-});
-$('addClip').onclick=()=>{L.clips.push({x:82,y:-6});sel='clip:'+(L.clips.length-1);changed(['clips'])};
-$('fit').onclick=()=>fitRequest('fit');
-$('center').onclick=()=>fitRequest('center');
-$('aspect').onclick=()=>{
-  if(!job.image)return;const a=L.area,[cx,cy]=centerOf(a),turn=srcKind()==='svg'?0:(+job.prep.rotate||0);
-  const [iw,ih]=turn===90||turn===270?[job.image.h,job.image.w]:[job.image.w,job.image.h];
-  a.h=Math.round(a.w*ih/iw*10)/10;a.x=cx-a.w/2;a.y=snapv(cy-a.h/2);changed(['area.h']);
-};
-$('snap').onchange=e=>{snap=e.target.checked};
-$('progress').oninput=drawProgress;$('showTravel').onchange=drawProgress;$('showImg').onchange=placeInk;
-document.querySelectorAll('.tabs [role=tab]').forEach(t=>t.onclick=()=>{
-  document.querySelectorAll('.tabs [role=tab]').forEach(x=>{const on=x===t;x.setAttribute('aria-selected',on);$(x.getAttribute('aria-controls')).hidden=!on});
-});
-
-/* effect + params */
-const GROUP_ORDER=['Trace to vector lines','Single continuous line','Hatching & engraving','Dots','Vector file'];
-const srcKind=()=>job.image?.kind==='svg'?'svg':'raster';
-function buildEffects(){
-  const kind=srcKind(),usable=effects.filter(e=>(e.source||'raster')===kind);
-  if(!usable.some(e=>e.name===job.effect)){
-    job.effect=kind==='svg'?'svg':(usable.some(e=>e.name===job.lastRaster)?job.lastRaster:'waves');
-  }
-  if(kind==='raster')job.lastRaster=job.effect;
-  const opt=e=>`<option value="${e.name}">${esc(e.label)}</option>`;
-  const groups=[...new Set([...GROUP_ORDER,...usable.map(e=>e.group)])].filter(g=>usable.some(e=>e.group===g));
-  $('effect').innerHTML=groups.length<2?usable.map(opt).join(''):
-    groups.map(g=>`<optgroup label="${esc(g)}">${usable.filter(e=>e.group===g).map(opt).join('')}</optgroup>`).join('');
-  $('effect').value=job.effect;$('toneControls').hidden=kind==='svg';buildParams();
-}
-/* Number shown beside a slider: trims to the step's decimals and adds the unit. */
-function fmtVal(v,step,unit){
-  const dec=Math.max(0,Math.min(3,String(step??1).split('.')[1]?.length||0));
-  const n=Number(v).toFixed(dec);
-  return unit?(unit==='°'||unit==='×'?n+unit:`${n} ${unit}`):n;
-}
-function sliderHTML(id,label,v,min,max,step,unit,help){
-  return `<label class="f slider" for="${id}"><span class="lab">${esc(label)}<output id="${id}.out">${fmtVal(v,step,unit)}</output></span>`+
-    `<input type="range" id="${id}" min="${min}" max="${max}" step="${step??'any'}" value="${v}">`+
-    `${help?`<small>${esc(help)}</small>`:''}</label>`;
-}
-function buildParams(){
-  const e=effects.find(x=>x.name===job.effect)||effects[0];job.effect=e.name;
-  $('effectDesc').textContent=e.description;
-  const cur=job.params[e.name]||(job.params[e.name]={});
-  $('params').innerHTML=e.params.map(p=>{
-    const v=cur[p.name]??p.default,id='E.'+p.name,help=p.help?`<small>${esc(p.help)}</small>`:'';
-    let html;
-    if(p.kind==='bool')html=`<label class="f row"><input type="checkbox" id="${id}" ${v?'checked':''}> ${esc(p.label)}</label>${p.help?`<small class="boolhelp">${esc(p.help)}</small>`:''}`;
-    else if(p.kind==='choice')html=`<label class="f">${esc(p.label)}<select id="${id}">${p.choices.map(c=>`<option ${c===v?'selected':''}>${esc(c)}</option>`).join('')}</select>${help}</label>`;
-    else if(p.min!=null&&p.max!=null)html=sliderHTML(id,p.label,v,p.min,p.max,p.step,p.unit,p.help);
-    else html=`<label class="f">${esc(p.label)}<input type="number" id="${id}" value="${v}">${help}</label>`;
-    return `<div class="param" data-p="${p.name}">${html}</div>`;
-  }).join('');
-  const current=name=>{const p=e.params.find(q=>q.name===name);return cur[name]??p?.default};
-  const applyWhen=()=>e.params.forEach(p=>{
-    const box=document.querySelector(`#params [data-p="${p.name}"]`);
-    box.hidden=!!p.when&&!Object.entries(p.when).every(([k,vals])=>vals.includes(current(k)));
-  });
-  e.params.forEach(p=>{const el=$('E.'+p.name);el.addEventListener('input',()=>{
-    let v=p.kind==='bool'?el.checked:p.kind==='choice'?el.value:parseFloat(el.value);
-    if((p.kind==='float'||p.kind==='int')&&!isFinite(v))return;
-    if(p.kind==='int')v=Math.round(v);
-    const out=$('E.'+p.name+'.out');if(out)out.textContent=fmtVal(v,p.step,p.unit);
-    cur[p.name]=v;applyWhen();save();schedulePlan(p.kind==='int'||p.kind==='float'?400:0);
-  })});
-  applyWhen();
-}
-$('resetParams').onclick=()=>{job.params[job.effect]={};buildParams();save();schedulePlan(0)};
-$('effect').onchange=e=>{job.effect=e.target.value;buildParams();save();schedulePlan(0)};
-
-/* image */
-function renderThumb(){
-  const t=$('thumb'),n=$('srcNotes'),im=job.image;
-  n.hidden=!(im?.warnings?.length);n.innerHTML=(im?.warnings||[]).map(w=>`<li>${esc(w)}</li>`).join('');
-  if(!im){t.innerHTML='<span>No file loaded. The preview uses a sample sphere.</span>';$('srcimg').setAttribute('href','');}
-  else{
-    const info=im.kind==='svg'
-      ?`SVG · ${im.strokes} line${im.strokes===1?'':'s'}, ${im.fills} filled shape${im.fills===1?'':'s'} · ${im.w} × ${im.h} mm`
-      :`${im.w} × ${im.h} px`;
-    t.innerHTML=`<img src="${im.url}" alt=""><span>${esc(im.name)}<br>${info}</span><button class="btn" type="button" id="clearSrc">Remove</button>`;
-    $('srcimg').setAttribute('href',im.url);
-    $('clearSrc').onclick=()=>{URL.revokeObjectURL(im.url);job.image=null;job.prep.crop=null;$('file').value='';renderThumb();buildEffects();save();schedulePlan(0)};
-  }
-  $('selBox').hidden=im?.kind!=='raster';renderCropInfo();
-  if(im?.kind==='raster'){$('selInfo').textContent=selText(im.sel);$('selOpts').hidden=!im.sel?.has_mask;if(im.sel?.has_mask)$('srcimg').setAttribute('href',im.sel.preview)}
-  placeInk();syncInputs();
-}
-$('file').onchange=async e=>{
-  const f=e.target.files[0];if(!f)return;setStatus('Reading file…');
-  const fd=new FormData();fd.append('file',f);
-  try{
-    const r=await fetch('/api/image',{method:'POST',body:fd});const d=await r.json();
-    if(!r.ok)throw new Error(d.detail||r.statusText);
-    if(job.image?.url)URL.revokeObjectURL(job.image.url);
-    job.prep.crop=null;
-    job.image={id:d.id,kind:d.kind,w:d.width,h:d.height,name:f.name,warnings:d.warnings||[],strokes:d.strokes,fills:d.fills,sel:d.selection||null,url:URL.createObjectURL(f)};
-    renderThumb();buildEffects();save();schedulePlan(0);
-  }catch(err){setStatus('Upload failed: '+err.message,true)}
-};
-
-/* layout file */
-$('exportLayout').onclick=()=>{const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([JSON.stringify(L,null,2)],{type:'application/json'}));a.download='bambuplot-layout.json';a.click();setTimeout(()=>URL.revokeObjectURL(a.href),4000)};
-$('importLayout').onchange=async e=>{
-  const f=e.target.files[0];if(!f)return;
-  try{L=deepMerge(DEF.layout,JSON.parse(await f.text()));changed(['area.w']);setStatus('Layout loaded')}catch(_){setStatus('That file is not a BambuPlot layout.',true)}
-  e.target.value='';
-};
-
-/* downloads */
-$('dlG').onclick=()=>download('/api/gcode',planBody(),`bambuplot-${job.effect}.gcode`);
-$('dl3mf').onclick=async()=>{
-  $('problems').hidden=true;
-  try{
-    const r=await post('/api/package',{...planBody(),kind:'art'});
-    if(!r.ok){const e=await r.json().catch(()=>({}));showProblems(r.status===404?'The server is out of date. Restart it.':e.detail);return}
-    const name=(r.headers.get('Content-Disposition')||'').match(/filename="([^"]+)"/)?.[1]||'bambuplot.gcode.3mf';
-    const a=document.createElement('a');a.href=URL.createObjectURL(await r.blob());a.download=name;document.body.appendChild(a);a.click();a.remove();
-    setTimeout(()=>URL.revokeObjectURL(a.href),4000);setStatus(`Saved ${name}`);
-  }catch(_){showProblems('Could not reach the BambuPlot server.')}
-};
-$('dlSmoke').onclick=()=>download('/api/calibrate/smoke',L,'bambuplot-smoke.gcode');
-$('dlPress').onclick=()=>download('/api/calibrate/press',L,'bambuplot-press.gcode');
-
-/* ---------- dragging ---------- */
-function toMM(e){const pt=svg.createSVGPoint();pt.x=e.clientX;pt.y=e.clientY;const q=pt.matrixTransform(svg.getScreenCTM().inverse());return {x:q.x+V.x0,y:V.y1-q.y}}
-svg.addEventListener('pointerdown',e=>{
-  const t=e.target.closest('[data-drag]');if(!t)return;
-  const k=t.dataset.drag;drag={k,m:toMM(e),paper:{...L.paper},area:{...L.area},clips:L.clips.map(c=>({...c}))};
-  sel=k.startsWith('h-')||k==='rot-area'?'area':k==='rot-paper'?'paper':k;
-  svg.setPointerCapture(e.pointerId);svg.focus({preventScroll:true});e.preventDefault();render();
-});
-/* Resize keeps the opposite corner fixed in the world, working in the area's own axes. */
-function resizeArea(o,corner,dx,dy){
-  const b={...o,rot:o.rotation||0},left=corner[1]==='l',front=corner[0]==='f';
-  const [ox,oy]=toWorld(b,left?b.w:0,front?b.h:0);          // fixed opposite corner
-  const [mx,my]=toWorld(b,left?0:b.w,front?0:b.h);          // dragged corner
-  const [lu,lv]=rotPt(mx+dx-ox,my+dy-oy,-b.rot);             // drag vector in local axes
-  let w=snapv(left?-lu:lu),h=snapv(front?-lv:lv);w=Math.max(10,w);h=Math.max(10,h);
-  const [cu,cv]=rotPt((left?-w:w)/2,(front?-h:h)/2,b.rot);   // new center, measured from the fixed corner
-  const cx=ox+cu,cy=oy+cv;
-  return {...o,w,h,x:Math.round((cx-w/2)*100)/100,y:Math.round((cy-h/2)*100)/100};
-}
-let raf=0;
-svg.addEventListener('pointermove',e=>{
-  if(!drag)return;const m=toMM(e),dx=m.x-drag.m.x,dy=m.y-drag.m.y,k=drag.k;
-  if(k==='paper'){L.paper.x=snapv(drag.paper.x+dx);L.paper.y=snapv(drag.paper.y+dy)}
-  else if(k==='area'){L.area.x=snapv(drag.area.x+dx);L.area.y=snapv(drag.area.y+dy)}
-  else if(k.startsWith('clip:')){const i=+k.slice(5),o=drag.clips[i];L.clips[i]={x:snapv(o.x+dx),y:snapv(o.y+dy)}}
-  else if(k.startsWith('rot-')){
-    const obj=k==='rot-area'?L.area:L.paper,b=k==='rot-area'?areaBox():paperBox(),[cx,cy]=centerOf(b);
-    let ang=Math.atan2(m.y-cy,m.x-cx)*180/Math.PI-90;const step=e.shiftKey?15:1;
-    obj.rotation=normAng(Math.round(ang/step)*step);
-  }
-  else L.area=resizeArea(drag.area,k.slice(2),dx,dy);
-  if(!raf)raf=requestAnimationFrame(()=>{raf=0;render();refreshChecks()});
-});
-const end=()=>{if(!drag)return;const resized=drag.k.startsWith('h-');drag=null;changed(resized?['area.w']:['moved'])};
-svg.addEventListener('pointerup',end);svg.addEventListener('pointercancel',end);
-svg.addEventListener('keydown',e=>{
-  if(e.key==='['||e.key===']'||e.key==='{'||e.key==='}'){
-    const t=sel==='paper'?'paper':sel==='area'?'area':null;if(!t)return;e.preventDefault();
-    const step=e.shiftKey?15:1;rotate(t,String(e.key==='['||e.key==='{'?step:-step));return;
-  }
-  const d={ArrowLeft:[-1,0],ArrowRight:[1,0],ArrowUp:[0,1],ArrowDown:[0,-1]}[e.key];if(!d)return;e.preventDefault();
-  const s=e.shiftKey?10:1,ax=d[0]*s,ay=d[1]*s;
-  if(sel==='paper'){L.paper.x+=ax;L.paper.y+=ay}else if(sel==='area'){L.area.x+=ax;L.area.y+=ay}
-  else if(sel.startsWith('clip:')){const c=L.clips[+sel.slice(5)];if(c){c.x+=ax;c.y+=ay}}
-  changed(['moved']);
-});
-
-
-/* ---------- printer ---------- */
-const errText=d=>typeof d==='string'?d:(d?.message?d.message+(d.problems?.length?': '+d.problems.slice(0,3).join('; '):''):'Something went wrong.');
-function msg(id,text,kind){const m=$(id);m.textContent=text;m.className='msg'+(kind?' '+kind:'')}
-let printerCfg=null;
-function renderPrinter(c){
-  printerCfg=c;$('pr-ip').value=c.ip;$('pr-serial').value=c.serial;$('pr-url').value=c.url_prefix;
-  const code=$('pr-code');code.value='';code.disabled=c.access_code_from_env;
-  code.placeholder=c.access_code_from_env?'Set by BAMBU_ACCESS_CODE':c.has_access_code?'Saved. Leave blank to keep it.':'8 characters, from the printer screen';
-  const t=c.template;
-  $('tpl-info').textContent=!t?'No template yet. Plain .gcode will be uploaded.':t.error?t.error:
-    `Template ready: sliced for the ${t.printer_model||'unknown printer'}, plots go into ${t.plate}.${t.warning?' '+t.warning:''}`;
-  $('tpl-remove').disabled=!t;
-}
-async function loadPrinter(){
-  try{const r=await fetch('/api/printer');
-    if(r.status===404){msg('pr-msg','The server is out of date. Stop it (Ctrl+C) and run `uv run bambuplot serve` again.','err');return}
-    renderPrinter(await r.json())}catch(_){}
-}
-async function savePrinter(){
-  const code=$('pr-code').value.trim();
-  const r=await post('/api/printer',{ip:$('pr-ip').value,serial:$('pr-serial').value,url_prefix:$('pr-url').value||'file:///sdcard/',access_code:code?code:null});
-  if(!r.ok){msg('pr-msg',r.status===404?'The server is out of date. Stop it (Ctrl+C) and run `uv run bambuplot serve` again.':'Could not save the settings.','err');return false}
-  renderPrinter(await r.json());return true;
-}
-$('pr-save').onclick=async()=>{if(await savePrinter())msg('pr-msg','Saved.','ok')};
-$('pr-test').onclick=async()=>{
-  if(!await savePrinter())return;msg('pr-msg','Connecting…');
-  try{const r=await post('/api/printer/test',{}),d=await r.json();
-    if(!r.ok){msg('pr-msg',errText(d.detail),'err');return}
-    msg('pr-msg',`Connected. The printer is ${String(d.state||'unknown').toLowerCase()}.`,'ok');
-  }catch(_){msg('pr-msg','Could not reach the BambuPlot server.','err')}
-};
-$('tpl-file').onchange=async e=>{
-  const f=e.target.files[0];if(!f)return;const fd=new FormData();fd.append('file',f);
-  const r=await fetch('/api/printer/template',{method:'POST',body:fd}),d=await r.json();e.target.value='';
-  if(!r.ok){$('tpl-info').textContent=errText(d.detail);return}
-  loadPrinter();
-};
-$('tpl-remove').onclick=async()=>{await fetch('/api/printer/template',{method:'DELETE'});loadPrinter()};
-$('sendOpen').onclick=()=>{$('sendbox').hidden=false;$('send-ack').checked=false;$('send-start').disabled=$('send-connect').disabled=true;msg('send-msg','');loadPrinter()};
-$('send-cancel').onclick=()=>{$('sendbox').hidden=true};
-$('send-ack').onchange=e=>{$('send-start').disabled=$('send-connect').disabled=!e.target.checked};
-async function sendJob(start){
-  const kind=$('send-kind').value;
-  if(isBad()){msg('send-msg','Fix the failing safety checks first.','err');return}
-  if(printerCfg&&(!printerCfg.ip||!printerCfg.has_access_code)){msg('send-msg','Add the printer IP and access code in the Printer tab first.','err');return}
-  $('send-upload').disabled=$('send-start').disabled=true;msg('send-msg',start?'Uploading and starting…':'Uploading…');
-  try{
-    const r=await post('/api/send',{...planBody(),kind,start}),d=await r.json();
-    if(!r.ok){msg('send-msg',errText(d.detail),'err');return}
-    msg('send-msg',d.started?`Started ${d.file}. Go to the printer: at Pause 1, put the pen in and touch it to the paper.`
-      :`Uploaded ${d.file}. Start it from the printer's screen when you're ready.`,'ok');
-    $('send-ack').checked=false;
-  }catch(_){msg('send-msg','Could not reach the BambuPlot server.','err')}
-  finally{$('send-upload').disabled=false;$('send-start').disabled=!$('send-ack').checked}
-}
-$('send-upload').onclick=()=>sendJob(false);
-$('send-connect').onclick=async()=>{
-  if(isBad()){msg('send-msg','Fix the failing safety checks first.','err');return}
-  $('send-connect').disabled=true;msg('send-msg','Packaging for Bambu Connect…');
-  try{
-    const r=await post('/api/connect',{...planBody(),kind:$('send-kind').value}),d=await r.json();
-    if(!r.ok){msg('send-msg',errText(d.detail),'err');return}
-    msg('send-msg',`Opened ${d.file} in Bambu Connect. Choose your printer there and send it, then start it at the printer. Saved at ${d.path}.`,'ok');
-  }catch(_){msg('send-msg','Could not reach the BambuPlot server.','err')}
-  finally{$('send-connect').disabled=!$('send-ack').checked}
-};
-$('send-start').onclick=()=>sendJob(true);
-
-
-/* ---------- subject selection / background removal ---------- */
-const ED={tool:'box',img:null,mask:null,busy:false,dw:0,dh:0,drag:null,hover:null};
-function selText(d){
-  if(!d?.has_mask)return 'Nothing removed yet.';
-  const how=!d.method?'':d.method.startsWith('ai:')?` (AI: ${d.method.slice(3).toLowerCase()})`:` (found a ${d.method==='photo'?'subject in a photo':'plain background'})`;
-  return `Background removed: ${Math.round(d.kept*100)}% of the picture kept${how}.`;
-}
-function applySel(d){
-  if(!job.image||!d)return;
-  job.image.sel=d;
-  $('selInfo').textContent=selText(d);$('selOpts').hidden=!d.has_mask;
-  $('srcimg').setAttribute('href',d.has_mask?d.preview:job.image.url);
-  const st=$('edStatus');st.classList.remove('err');
-  st.textContent=ED.tool==='crop'?cropText():d.has_mask?selText(d)+' Grey checks show what will be left blank.':'Drag a box around the subject, or press Remove background.';
-  $('edUndo').disabled=!d.can_undo;
-  if(d.mask){const im=new Image();im.onload=()=>{ED.mask=im;drawOverlay()};im.src=d.mask}else{ED.mask=null;drawOverlay()}
-  schedulePlan(0);
-}
-async function maskOp(body,where='edStatus'){
-  if(!job.image||job.image.kind!=='raster'||ED.busy)return;
-  ED.busy=true;const st=$(where);st.classList?.remove('err');
-  const aiM=AI.models.find(x=>x.name===body.model);
-  st.textContent=body.op==='ai'?(aiM&&!aiM.downloaded?`Downloading the ${aiM.label.toLowerCase()} model (${aiM.size_mb} MB) the first time, then running it…`:'Running the AI model…'):
-    body.op==='auto'?'Looking for the subject…':body.op==='select'||body.smart?'Finding the subject\'s edges…':'Updating…';
-  try{
-    const r=await post(`/api/image/${job.image.id}/mask`,body),d=await r.json();
-    if(!r.ok){st.textContent=typeof d.detail==='string'?d.detail:'That didn\'t work.';st.classList?.add('err');return}
-    applySel(d);if(where!=='edStatus')$('selInfo').textContent=selText(d);
-    if(body.op==='ai')loadAI();
-  }catch(_){st.textContent='Could not reach the BambuPlot server.';st.classList?.add('err')}
-  finally{ED.busy=false;drawEdStroke()}
-}
-function layoutEd(){
-  if(!ED.img)return;
-  const stage=$('edStage').getBoundingClientRect(),pad=28,ar=ED.img.naturalWidth/ED.img.naturalHeight;
-  let w=stage.width-pad,h=w/ar;if(h>stage.height-pad){h=stage.height-pad;w=h*ar}
-  ED.dw=Math.max(50,Math.floor(w));ED.dh=Math.max(50,Math.floor(h));
-  const box=$('edCanvas');box.style.width=ED.dw+'px';box.style.height=ED.dh+'px';
-  const dpr=window.devicePixelRatio||1;
-  for(const id of ['edImg','edOver','edDraw']){const c=$(id);c.width=Math.round(ED.dw*dpr);c.height=Math.round(ED.dh*dpr);c.getContext('2d').setTransform(dpr,0,0,dpr,0,0)}
-  const g=$('edImg').getContext('2d');g.imageSmoothingQuality='high';g.drawImage(ED.img,0,0,ED.dw,ED.dh);
-  drawOverlay();
-}
-function drawOverlay(){
-  const c=$('edOver');if(!c.width)return;const g=c.getContext('2d');g.clearRect(0,0,ED.dw,ED.dh);
-  if(!ED.mask)return;
-  const mw=ED.mask.naturalWidth,mh=ED.mask.naturalHeight,off=document.createElement('canvas');off.width=mw;off.height=mh;
-  const og=off.getContext('2d');og.drawImage(ED.mask,0,0);const px=og.getImageData(0,0,mw,mh),d=px.data;
-  const cell=Math.max(4,Math.round(mw/90));
-  for(let y=0;y<mh;y++)for(let x=0;x<mw;x++){
-    const i=(y*mw+x)*4;
-    if(d[i]<128){const alt=((x/cell|0)+(y/cell|0))&1;d[i]=d[i+1]=d[i+2]=alt?226:246;d[i+3]=215}else d[i+3]=0;
-  }
-  og.putImageData(px,0,0);g.imageSmoothingEnabled=true;g.drawImage(off,0,0,ED.dw,ED.dh);
-}
-function openEditor(tool){
-  if(!job.image||job.image.kind!=='raster')return;
-  ED.crop=job.prep.crop?[...job.prep.crop]:[0,0,1,1];
-  if(tool)setTool(tool);
-  $('editor').showModal();
-  const im=new Image();im.onload=()=>{ED.img=im;layoutEd();applySel(job.image.sel)};im.src=job.image.url;
-}
-function setTool(t){
-  ED.tool=t;document.querySelectorAll('#edTools button').forEach(b=>b.setAttribute('aria-pressed',b.dataset.tool===t));
-  $('edCropOpts').hidden=t!=='crop';$('edBrushOpts').hidden=t==='crop'||t==='box';
-  if(t==='crop')$('edStatus').textContent=cropText();
-  drawEdStroke();
-}
-document.querySelectorAll('#edTools button').forEach(b=>b.onclick=()=>setTool(b.dataset.tool));
-$('edSize').oninput=e=>{$('edSize.out').textContent=e.target.value+' px'};
-$('selEdit').onclick=()=>openEditor('box');
-$('cropOpen').onclick=()=>openEditor('crop');
-$('selAuto').onclick=()=>maskOp({op:'auto'},'selInfo');
-const AI={available:false,models:[]};
-async function loadAI(){
-  try{const d=await (await fetch('/api/ai')).json();AI.available=d.available;AI.models=d.models||[]}catch(_){AI.available=false}
-  $('aiBox').hidden=!AI.available;$('aiInstall').hidden=AI.available;$('edAI').hidden=!AI.available;
-  if(!AI.available)return;
-  const sel=$('aiModel');
-  if(!AI.models.some(m=>m.name===job.aiModel))job.aiModel=AI.models[0]?.name;
-  sel.innerHTML=AI.models.map(m=>`<option value="${m.name}">${esc(m.label)} · ${m.downloaded?'ready':m.size_mb+' MB download'}</option>`).join('');
-  sel.value=job.aiModel;
-  $('edAI').title=`Uses the ${AI.models.find(m=>m.name===job.aiModel)?.label.toLowerCase()} model, chosen in the Source panel`;
-}
-$('aiModel').onchange=e=>{job.aiModel=e.target.value;save();loadAI()};
-$('selAI').onclick=()=>maskOp({op:'ai',model:job.aiModel},'selInfo');
-$('edAI').onclick=()=>maskOp({op:'ai',model:job.aiModel});
-$('edAuto').onclick=()=>maskOp({op:'auto'});
-$('edInvert').onclick=()=>maskOp({op:'invert'});
-$('edGrow').onclick=()=>maskOp({op:'grow',amount:3});
-$('edShrink').onclick=()=>maskOp({op:'grow',amount:-3});
-$('edUndo').onclick=()=>maskOp({op:'undo'});
-$('edReset').onclick=()=>maskOp({op:'reset'});
-$('edDone').onclick=()=>$('editor').close();
-$('editor').addEventListener('keydown',e=>{if((e.metaKey||e.ctrlKey)&&e.key.toLowerCase()==='z'){e.preventDefault();maskOp({op:'undo'})}
-  else if(e.key==='c')setTool('crop');else if(e.key==='b')setTool('box');else if(e.key==='e')setTool('erase');else if(e.key==='r')setTool('keep')});
-window.addEventListener('resize',()=>{if($('editor').open)layoutEd()});
-const edPt=e=>{const r=$('edDraw').getBoundingClientRect();return [Math.min(1,Math.max(0,(e.clientX-r.left)/r.width)),Math.min(1,Math.max(0,(e.clientY-r.top)/r.height))]};
-/* ----- crop ----- */
-const isFull=c=>c[0]<=0.0005&&c[1]<=0.0005&&c[2]>=0.9995&&c[3]>=0.9995;
-function cropText(){
-  const c=ED.crop||[0,0,1,1];
-  if(isFull(c))return 'Drag on the picture to crop it. The plot uses only what is inside the box.';
-  const iw=job.image.w,ih=job.image.h;
-  return `Crop: ${Math.round((c[2]-c[0])*iw)} × ${Math.round((c[3]-c[1])*ih)} px (${Math.round((c[2]-c[0])*100)}% × ${Math.round((c[3]-c[1])*100)}% of the picture). Drag inside to move it, or a corner to resize.`;
-}
-/* Target shape as width/height in picture pixels, or null for free. */
-function cropAspect(){
-  const v=$('edAspect').value,iw=job.image.w,ih=job.image.h,turn=+job.prep.rotate||0;
-  if(v==='area'){const a=L.area.w/L.area.h;return turn===90||turn===270?1/a:a}
-  if(v==='original')return iw/ih;
-  if(v==='square')return 1;
-  return null;
-}
-/* Box from fixed corner a to point p, held to the target shape and inside the picture. */
-function shapeBox(a,p){
-  let du=p[0]-a[0],dv=p[1]-a[1];const asp=cropAspect();
-  if(asp){
-    const r=asp*job.image.h/job.image.w; // du/dv in normalized units
-    if(Math.abs(du)/r>Math.abs(dv))dv=Math.sign(dv||1)*Math.abs(du)/r;else du=Math.sign(du||1)*Math.abs(dv)*r;
-    const lim=Math.min(1,(du>0?(1-a[0]):a[0])/Math.max(Math.abs(du),1e-9),(dv>0?(1-a[1]):a[1])/Math.max(Math.abs(dv),1e-9));
-    du*=lim;dv*=lim;
-  }else{du=Math.min(Math.max(du,-a[0]),1-a[0]);dv=Math.min(Math.max(dv,-a[1]),1-a[1])}
-  return [Math.min(a[0],a[0]+du),Math.min(a[1],a[1]+dv),Math.max(a[0],a[0]+du),Math.max(a[1],a[1]+dv)];
-}
-function commitCrop(){
-  const c=ED.crop;
-  if(c[2]-c[0]<0.02||c[3]-c[1]<0.02){ED.crop=job.prep.crop?[...job.prep.crop]:[0,0,1,1];drawEdStroke();return}
-  job.prep.crop=isFull(c)?null:c.map(v=>Math.round(v*10000)/10000);
-  renderCropInfo();save();placeInk();schedulePlan(0);$('edStatus').textContent=cropText();
-}
-function renderCropInfo(){
-  const c=job.prep.crop,el=$('cropInfo');
-  el.hidden=!c;if(c)el.textContent=`Cropped to ${Math.round((c[2]-c[0])*100)}% × ${Math.round((c[3]-c[1])*100)}% of the picture.`;
-}
-$('edAspect').onchange=()=>{
-  const asp=cropAspect();if(!asp){$('edStatus').textContent=cropText();return}
-  // Largest box of the new shape inside the current crop, centered on it.
-  const c=ED.crop,iw=job.image.w,ih=job.image.h,cw=(c[2]-c[0])*iw,ch=(c[3]-c[1])*ih;
-  let w=cw,h=w/asp;if(h>ch){h=ch;w=h*asp}
-  const cx=(c[0]+c[2])/2,cy=(c[1]+c[3])/2;
-  ED.crop=[cx-w/iw/2,cy-h/ih/2,cx+w/iw/2,cy+h/ih/2];commitCrop();drawEdStroke();
-};
-$('edCropReset').onclick=()=>{ED.crop=[0,0,1,1];commitCrop();drawEdStroke()};
-$('edMatchArea').onclick=()=>{
-  const c=ED.crop,turn=+job.prep.rotate||0;let asp=((c[2]-c[0])*job.image.w)/((c[3]-c[1])*job.image.h);
-  if(turn===90||turn===270)asp=1/asp;
-  const a=L.area,[,cy]=centerOf(a);a.h=Math.round(a.w/asp*10)/10;a.y=Math.round((cy-a.h/2)*10)/10;
-  changed(['area.h']);$('edStatus').textContent=`Drawing area reshaped to ${fmt(a.w)} × ${fmt(a.h)} mm to match the crop. Check the safety checks.`;
-};
-function drawCrop(g){
-  const c=ED.crop||[0,0,1,1],on=ED.tool==='crop';
-  if(isFull(c)&&!on)return;
-  const x0=c[0]*ED.dw,y0=c[1]*ED.dh,x1=c[2]*ED.dw,y1=c[3]*ED.dh;
-  g.save();g.fillStyle=on?'rgba(12,16,20,.55)':'rgba(12,16,20,.35)';
-  g.beginPath();g.rect(0,0,ED.dw,ED.dh);g.rect(x0,y0,x1-x0,y1-y0);g.fill('evenodd');
-  g.strokeStyle='#fff';g.lineWidth=on?2:1;g.strokeRect(x0,y0,x1-x0,y1-y0);
-  if(on){
-    g.globalAlpha=.5;g.lineWidth=1;g.beginPath();
-    for(const f of [1/3,2/3]){g.moveTo(x0+(x1-x0)*f,y0);g.lineTo(x0+(x1-x0)*f,y1);g.moveTo(x0,y0+(y1-y0)*f);g.lineTo(x1,y0+(y1-y0)*f)}
-    g.stroke();g.globalAlpha=1;g.fillStyle='#fff';
-    for(const [x,y] of [[x0,y0],[x1,y0],[x0,y1],[x1,y1]])g.fillRect(x-6,y-6,12,12);
-  }
-  g.restore();
-}
-function cropHit(p){
-  const c=ED.crop,tol=12/ED.dw,tolv=12/ED.dh;
-  const corners=[[c[0],c[1]],[c[2],c[1]],[c[0],c[3]],[c[2],c[3]]];
-  for(let i=0;i<4;i++)if(Math.abs(p[0]-corners[i][0])<tol&&Math.abs(p[1]-corners[i][1])<tolv)return {mode:'resize',anchor:corners[3-i]};
-  if(p[0]>c[0]&&p[0]<c[2]&&p[1]>c[1]&&p[1]<c[3]&&!isFull(c))return {mode:'move',start:[...c],from:p};
-  return {mode:'new',anchor:p};
-}
-function drawEdStroke(){
-  const g=$('edDraw').getContext('2d');g.clearRect(0,0,ED.dw,ED.dh);const dr=ED.drag;
-  drawCrop(g);
-  if(dr&&dr.tool==='box'){
-    const [a,b]=[dr.pts[0],dr.pts[dr.pts.length-1]];
-    g.setLineDash([6,4]);g.lineWidth=2;g.strokeStyle='#2246c8';g.fillStyle='rgba(34,70,200,.08)';
-    g.fillRect(a[0]*ED.dw,a[1]*ED.dh,(b[0]-a[0])*ED.dw,(b[1]-a[1])*ED.dh);g.strokeRect(a[0]*ED.dw,a[1]*ED.dh,(b[0]-a[0])*ED.dw,(b[1]-a[1])*ED.dh);g.setLineDash([]);
-  }else if(dr){
-    g.lineCap=g.lineJoin='round';g.lineWidth=+$('edSize').value;g.strokeStyle=dr.tool==='keep'?'rgba(22,121,58,.55)':'rgba(192,38,45,.55)';
-    g.beginPath();dr.pts.forEach(([u,v],i)=>i?g.lineTo(u*ED.dw,v*ED.dh):g.moveTo(u*ED.dw,v*ED.dh));
-    if(dr.pts.length===1)g.lineTo(dr.pts[0][0]*ED.dw+0.1,dr.pts[0][1]*ED.dh);g.stroke();
-  }
-  if(!dr&&ED.hover&&(ED.tool==='erase'||ED.tool==='keep')){
-    g.lineWidth=1.5;g.strokeStyle=ED.tool==='keep'?'#16793a':'#c0262d';g.beginPath();
-    g.arc(ED.hover[0]*ED.dw,ED.hover[1]*ED.dh,+$('edSize').value/2,0,Math.PI*2);g.stroke();
-  }
-}
-const edDraw=$('edDraw');
-edDraw.addEventListener('pointerdown',e=>{
-  if(ED.busy)return;edDraw.setPointerCapture(e.pointerId);const p=edPt(e);
-  ED.drag=ED.tool==='crop'?{tool:'crop',...cropHit(p),pts:[p]}:{tool:ED.tool,pts:[p]};drawEdStroke();
-});
-edDraw.addEventListener('pointermove',e=>{
-  const p=edPt(e);ED.hover=p;
-  if(ED.drag&&ED.drag.tool==='crop'){
-    const d=ED.drag;
-    if(d.mode==='move'){
-      const s=d.start,w=s[2]-s[0],h=s[3]-s[1];
-      const u0=Math.min(Math.max(s[0]+p[0]-d.from[0],0),1-w),v0=Math.min(Math.max(s[1]+p[1]-d.from[1],0),1-h);
-      ED.crop=[u0,v0,u0+w,v0+h];
-    }else ED.crop=shapeBox(d.anchor,p);
-    $('edStatus').textContent=cropText();drawEdStroke();return;
-  }
-  if(ED.drag){const pts=ED.drag.pts,last=pts[pts.length-1];
-    if(ED.drag.tool==='box')pts[1]=p;else if(Math.hypot(p[0]-last[0],p[1]-last[1])>0.002)pts.push(p)}
-  drawEdStroke();
-});
-edDraw.addEventListener('pointerleave',()=>{ED.hover=null;if(!ED.drag)drawEdStroke()});
-edDraw.addEventListener('pointerup',()=>{
-  const dr=ED.drag;ED.drag=null;if(!dr)return;
-  if(dr.tool==='crop'){commitCrop();drawEdStroke();return}
-  if(dr.tool==='box'){
-    const [a,b]=[dr.pts[0],dr.pts[dr.pts.length-1]];
-    if(Math.abs(b[0]-a[0])<0.02||Math.abs(b[1]-a[1])<0.02){drawEdStroke();$('edStatus').textContent='Drag a bigger box around the subject.';return}
-    maskOp({op:'select',rect:[a[0],a[1],b[0],b[1]]});
-  }else maskOp({op:'paint',smart:$('edSmart').checked,strokes:[{mode:dr.tool==='keep'?'keep':'erase',points:dr.pts,size:+$('edSize').value/ED.dw}]});
-});
-
-/* ---------- boot ---------- */
-(async function boot(){
-  try{
-    const [defs,effs]=await Promise.all([fetch('/api/defaults').then(r=>r.json()),fetch('/api/effects').then(r=>r.json())]);
-    DEF=defs;effects=effs;
-    const saved=restore();
-    L=deepMerge(defs.layout,saved?.layout);job.prep=deepMerge(defs.prep,saved?.prep);
-    job.effect=effects.some(e=>e.name===saved?.effect)?saved.effect:'waves';
-    job.params=(saved?.params&&typeof saved.params==='object')?saved.params:{};
-    job.aiModel=typeof saved?.aiModel==='string'?saved.aiModel:null;
-    buildEffects();render();refreshChecks();schedulePlan(0);loadPrinter();loadAI();
-    const v=await fetch('/api/version').then(r=>r.ok?r.json():null).catch(()=>null);
-    if(!v||!['rotation','printer'].every(f=>v.features?.includes(f)))
-      setStatus('The BambuPlot server is out of date. Stop it (Ctrl+C) and run `uv run bambuplot serve` again.',true);
-  }catch(e){setStatus('Could not reach the BambuPlot server. Start it with `bambuplot serve`.',true)}
-})();
-</script>
+<script src="/static/app.js"></script>
 </body>
 </html>

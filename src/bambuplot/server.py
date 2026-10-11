@@ -11,6 +11,7 @@ from pathlib import Path
 import numpy as np
 from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.responses import FileResponse, PlainTextResponse, Response
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from . import effects
@@ -33,6 +34,7 @@ MAX_PLANS = 8
 MAX_UPLOAD = 25 * 1024 * 1024
 
 app = FastAPI(title="BambuPlot")
+app.mount("/static", StaticFiles(directory=WEB), name="static")
 _images: OrderedDict[str, object] = OrderedDict()  # id -> RasterSource or SvgArt
 
 

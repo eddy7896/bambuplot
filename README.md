@@ -14,7 +14,28 @@ Open http://127.0.0.1:8000. Two tabs:
 - **Bed setup:** place the paper and clips on the 180 × 180 plate, enter your pen offset, and drag out the drawing area. Safety checks update live.
 - **Artwork:** load an image, adjust tone, pick an effect (wave lines, halftone, spiral, TSP stipple) and tune it. The preview shows the actual paths; the progress slider replays the drawing order.
 
-**Download G-code** is disabled while any safety check fails.
+### The window
+
+BambuPlot is laid out like a Mac app, and the page itself never scrolls.
+
+- **Toolbar:** Open, Edit Picture, a Download menu, and Send to Printer.
+- **Canvas:** the build plate fills the middle of the window.
+- **Inspector:** four tabs on the right: Picture, Effect, Bed and Printer.
+- **Status bar:** plot replay, the pen-up and source-picture toggles, ink/lifts/travel/time, and a safety badge that opens the full checklist.
+
+You can also drop a file anywhere on the window to open it.
+
+| Shortcut | Action |
+|---|---|
+| ⌘O | Open a picture or SVG |
+| ⌘E | Edit picture (crop, select, erase) |
+| ⌘S | Download G-code |
+| ⌘↩ | Send to printer |
+| ⌘1–⌘4 | Picture / Effect / Bed / Printer tab |
+
+On narrow windows, the inspector moves below the plate. It follows the system's light and dark appearance.
+
+**Download** and **Send to Printer** are disabled while any safety check fails.
 
 ### Sources and vectorization
 
