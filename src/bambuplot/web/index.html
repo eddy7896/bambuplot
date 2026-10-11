@@ -104,6 +104,20 @@ input:focus-visible,select:focus-visible,button:focus-visible{outline:2px solid 
 .boolhelp{margin:2px 0 0 24px}
 .effhead{display:flex;align-items:center;justify-content:space-between;gap:8px}
 .linkbtn{border:0;background:none;color:var(--accent);font:500 12px var(--font-ui);cursor:pointer;padding:2px}
+#editor{width:min(1280px,96vw);height:min(920px,94vh);max-width:none;max-height:none;padding:0;border:1px solid var(--line);border-radius:12px;background:var(--surface);color:var(--ink)}
+#editor::backdrop{background:rgba(10,14,16,.55)}
+.ed-wrap{display:flex;flex-direction:column;height:100%}
+.ed-bar{display:flex;flex-wrap:wrap;align-items:center;gap:10px 16px;padding:12px 14px;border-bottom:1px solid var(--line)}
+.ed-bar h2{font-size:15px;margin:0 6px 0 0}
+.ed-size{min-width:150px}
+#edTools button{white-space:nowrap;padding:6px 12px}
+.ed-actions{margin:0 0 0 auto}
+.ed-stage{flex:1;min-height:0;display:flex;align-items:center;justify-content:center;padding:14px;background:var(--bg)}
+.ed-canvas{position:relative;box-shadow:0 1px 6px rgba(0,0,0,.18)}
+.ed-canvas canvas{position:absolute;inset:0;width:100%;height:100%}
+#edDraw{cursor:crosshair;touch-action:none}
+.ed-status{margin:0;padding:8px 14px;font-size:12px;color:var(--muted);border-top:1px solid var(--line);font-variant-numeric:tabular-nums}
+.ed-status.err{color:var(--bad)}
 .thumb img{width:56px;height:56px;object-fit:cover;border-radius:6px;border:1px solid var(--line);filter:grayscale(1)}
 .below{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:18px;margin-top:18px;align-items:start}
 @media (max-width:760px){.below{grid-template-columns:minmax(0,1fr)}}
@@ -221,6 +235,17 @@ input[type=file]{font:12px var(--font-ui);color:var(--muted);max-width:100%}
           <input type="file" id="file" accept="image/png,image/jpeg,image/webp,image/svg+xml,.svg" aria-label="Choose a picture or SVG">
           <div class="thumb" id="thumb"><span>No file loaded. The preview uses a sample sphere.</span></div>
           <ul class="notes" id="srcNotes" hidden></ul>
+          <div id="selBox" hidden>
+            <div class="btns">
+              <button class="btn" type="button" id="selAuto">Remove background</button>
+              <button class="btn" type="button" id="selEdit">Select subject…</button>
+            </div>
+            <p class="hint" id="selInfo">Nothing removed yet.</p>
+            <div class="g2" id="selOpts" hidden>
+              <label class="f row"><input type="checkbox" id="P.use_mask"> Use selection</label>
+              <label class="f slider" for="P.mask_feather"><span class="lab">Edge softness<output id="P.mask_feather.out"></output></span><input type="range" id="P.mask_feather" min="0" max="3" step="0.1" data-unit="mm"></label>
+            </div>
+          </div>
           <p class="hint">PNG or JPG: pick a tone effect, or trace it into vector lines. SVG: its own paths are drawn directly.</p>
           <div class="g2" id="toneControls" style="margin-top:12px">
             <label class="f slider" for="P.contrast"><span class="lab">Contrast<output id="P.contrast.out"></output></span><input type="range" id="P.contrast" min="0.2" max="3" step="0.05" data-unit="×"></label>
@@ -411,6 +436,34 @@ input[type=file]{font:12px var(--font-ui);color:var(--muted);max-width:100%}
     </section>
   </div>
 </div>
+
+<dialog id="editor" aria-labelledby="edTitle">
+  <div class="ed-wrap">
+    <div class="ed-bar">
+      <h2 id="edTitle">Select subject</h2>
+      <div class="seg" id="edTools" role="group" aria-label="Tool">
+        <button type="button" data-tool="box" aria-pressed="true">Box select</button>
+        <button type="button" data-tool="erase" aria-pressed="false">Erase</button>
+        <button type="button" data-tool="keep" aria-pressed="false">Restore</button>
+      </div>
+      <label class="f slider ed-size" for="edSize"><span class="lab">Brush size<output id="edSize.out">28 px</output></span><input type="range" id="edSize" min="4" max="160" step="1" value="28"></label>
+      <label class="f row" title="The brush finds the subject's real edge instead of painting exactly"><input type="checkbox" id="edSmart"> Smart edges</label>
+      <div class="btns ed-actions">
+        <button class="btn" type="button" id="edAuto">Remove background</button>
+        <button class="btn" type="button" id="edInvert">Invert</button>
+        <button class="btn" type="button" id="edShrink" title="Shrink the kept area a little">Shrink</button>
+        <button class="btn" type="button" id="edGrow" title="Grow the kept area a little">Grow</button>
+        <button class="btn" type="button" id="edUndo">Undo</button>
+        <button class="btn" type="button" id="edReset">Reset</button>
+        <button class="btn primary" type="button" id="edDone">Done</button>
+      </div>
+    </div>
+    <div class="ed-stage" id="edStage">
+      <div class="ed-canvas" id="edCanvas"><canvas id="edImg"></canvas><canvas id="edOver"></canvas><canvas id="edDraw"></canvas></div>
+    </div>
+    <p class="ed-status" id="edStatus" role="status">Drag a box around the subject, or press Remove background.</p>
+  </div>
+</dialog>
 
 <script>
 const $=id=>document.getElementById(id);
@@ -727,6 +780,8 @@ function renderThumb(){
     $('srcimg').setAttribute('href',im.url);
     $('clearSrc').onclick=()=>{URL.revokeObjectURL(im.url);job.image=null;$('file').value='';renderThumb();buildEffects();save();schedulePlan(0)};
   }
+  $('selBox').hidden=im?.kind!=='raster';
+  if(im?.kind==='raster'){$('selInfo').textContent=selText(im.sel);$('selOpts').hidden=!im.sel?.has_mask;if(im.sel?.has_mask)$('srcimg').setAttribute('href',im.sel.preview)}
   $('srcimg').setAttribute('preserveAspectRatio',im?.kind==='svg'?'xMidYMid meet':'xMidYMid slice');
   placeInk();syncInputs();
 }
@@ -737,7 +792,7 @@ $('file').onchange=async e=>{
     const r=await fetch('/api/image',{method:'POST',body:fd});const d=await r.json();
     if(!r.ok)throw new Error(d.detail||r.statusText);
     if(job.image?.url)URL.revokeObjectURL(job.image.url);
-    job.image={id:d.id,kind:d.kind,w:d.width,h:d.height,name:f.name,warnings:d.warnings||[],strokes:d.strokes,fills:d.fills,url:URL.createObjectURL(f)};
+    job.image={id:d.id,kind:d.kind,w:d.width,h:d.height,name:f.name,warnings:d.warnings||[],strokes:d.strokes,fills:d.fills,sel:d.selection||null,url:URL.createObjectURL(f)};
     renderThumb();buildEffects();save();schedulePlan(0);
   }catch(err){setStatus('Upload failed: '+err.message,true)}
 };
@@ -881,6 +936,113 @@ $('send-connect').onclick=async()=>{
   finally{$('send-connect').disabled=!$('send-ack').checked}
 };
 $('send-start').onclick=()=>sendJob(true);
+
+
+/* ---------- subject selection / background removal ---------- */
+const ED={tool:'box',img:null,mask:null,busy:false,dw:0,dh:0,drag:null,hover:null};
+function selText(d){
+  if(!d?.has_mask)return 'Nothing removed yet.';
+  return `Background removed: ${Math.round(d.kept*100)}% of the picture kept${d.method?` (found a ${d.method==='photo'?'subject in a photo':'plain background'})`:''}.`;
+}
+function applySel(d){
+  if(!job.image||!d)return;
+  job.image.sel=d;
+  $('selInfo').textContent=selText(d);$('selOpts').hidden=!d.has_mask;
+  $('srcimg').setAttribute('href',d.has_mask?d.preview:job.image.url);
+  const st=$('edStatus');st.classList.remove('err');
+  st.textContent=d.has_mask?selText(d)+' Grey checks show what will be left blank.':'Drag a box around the subject, or press Remove background.';
+  $('edUndo').disabled=!d.can_undo;
+  if(d.mask){const im=new Image();im.onload=()=>{ED.mask=im;drawOverlay()};im.src=d.mask}else{ED.mask=null;drawOverlay()}
+  schedulePlan(0);
+}
+async function maskOp(body,where='edStatus'){
+  if(!job.image||job.image.kind!=='raster'||ED.busy)return;
+  ED.busy=true;const st=$(where);st.classList?.remove('err');
+  st.textContent=body.op==='auto'?'Looking for the subject…':body.op==='select'||body.smart?'Finding the subject\'s edges…':'Updating…';
+  try{
+    const r=await post(`/api/image/${job.image.id}/mask`,body),d=await r.json();
+    if(!r.ok){st.textContent=typeof d.detail==='string'?d.detail:'That didn\'t work.';st.classList?.add('err');return}
+    applySel(d);if(where!=='edStatus')$('selInfo').textContent=selText(d);
+  }catch(_){st.textContent='Could not reach the BambuPlot server.';st.classList?.add('err')}
+  finally{ED.busy=false;$('edDraw').getContext('2d').clearRect(0,0,$('edDraw').width,$('edDraw').height)}
+}
+function layoutEd(){
+  if(!ED.img)return;
+  const stage=$('edStage').getBoundingClientRect(),pad=28,ar=ED.img.naturalWidth/ED.img.naturalHeight;
+  let w=stage.width-pad,h=w/ar;if(h>stage.height-pad){h=stage.height-pad;w=h*ar}
+  ED.dw=Math.max(50,Math.floor(w));ED.dh=Math.max(50,Math.floor(h));
+  const box=$('edCanvas');box.style.width=ED.dw+'px';box.style.height=ED.dh+'px';
+  const dpr=window.devicePixelRatio||1;
+  for(const id of ['edImg','edOver','edDraw']){const c=$(id);c.width=Math.round(ED.dw*dpr);c.height=Math.round(ED.dh*dpr);c.getContext('2d').setTransform(dpr,0,0,dpr,0,0)}
+  const g=$('edImg').getContext('2d');g.imageSmoothingQuality='high';g.drawImage(ED.img,0,0,ED.dw,ED.dh);
+  drawOverlay();
+}
+function drawOverlay(){
+  const c=$('edOver');if(!c.width)return;const g=c.getContext('2d');g.clearRect(0,0,ED.dw,ED.dh);
+  if(!ED.mask)return;
+  const mw=ED.mask.naturalWidth,mh=ED.mask.naturalHeight,off=document.createElement('canvas');off.width=mw;off.height=mh;
+  const og=off.getContext('2d');og.drawImage(ED.mask,0,0);const px=og.getImageData(0,0,mw,mh),d=px.data;
+  const cell=Math.max(4,Math.round(mw/90));
+  for(let y=0;y<mh;y++)for(let x=0;x<mw;x++){
+    const i=(y*mw+x)*4;
+    if(d[i]<128){const alt=((x/cell|0)+(y/cell|0))&1;d[i]=d[i+1]=d[i+2]=alt?226:246;d[i+3]=215}else d[i+3]=0;
+  }
+  og.putImageData(px,0,0);g.imageSmoothingEnabled=true;g.drawImage(off,0,0,ED.dw,ED.dh);
+}
+function openEditor(){
+  if(!job.image||job.image.kind!=='raster')return;
+  $('editor').showModal();
+  const im=new Image();im.onload=()=>{ED.img=im;layoutEd();applySel(job.image.sel)};im.src=job.image.url;
+}
+function setTool(t){ED.tool=t;document.querySelectorAll('#edTools button').forEach(b=>b.setAttribute('aria-pressed',b.dataset.tool===t))}
+document.querySelectorAll('#edTools button').forEach(b=>b.onclick=()=>setTool(b.dataset.tool));
+$('edSize').oninput=e=>{$('edSize.out').textContent=e.target.value+' px'};
+$('selEdit').onclick=openEditor;
+$('selAuto').onclick=()=>maskOp({op:'auto'},'selInfo');
+$('edAuto').onclick=()=>maskOp({op:'auto'});
+$('edInvert').onclick=()=>maskOp({op:'invert'});
+$('edGrow').onclick=()=>maskOp({op:'grow',amount:3});
+$('edShrink').onclick=()=>maskOp({op:'grow',amount:-3});
+$('edUndo').onclick=()=>maskOp({op:'undo'});
+$('edReset').onclick=()=>maskOp({op:'reset'});
+$('edDone').onclick=()=>$('editor').close();
+$('editor').addEventListener('keydown',e=>{if((e.metaKey||e.ctrlKey)&&e.key.toLowerCase()==='z'){e.preventDefault();maskOp({op:'undo'})}
+  else if(e.key==='b')setTool('box');else if(e.key==='e')setTool('erase');else if(e.key==='r')setTool('keep')});
+window.addEventListener('resize',()=>{if($('editor').open)layoutEd()});
+const edPt=e=>{const r=$('edDraw').getBoundingClientRect();return [Math.min(1,Math.max(0,(e.clientX-r.left)/r.width)),Math.min(1,Math.max(0,(e.clientY-r.top)/r.height))]};
+function drawEdStroke(){
+  const g=$('edDraw').getContext('2d');g.clearRect(0,0,ED.dw,ED.dh);const dr=ED.drag;
+  if(dr&&dr.tool==='box'){
+    const [a,b]=[dr.pts[0],dr.pts[dr.pts.length-1]];
+    g.setLineDash([6,4]);g.lineWidth=2;g.strokeStyle='#2246c8';g.fillStyle='rgba(34,70,200,.08)';
+    g.fillRect(a[0]*ED.dw,a[1]*ED.dh,(b[0]-a[0])*ED.dw,(b[1]-a[1])*ED.dh);g.strokeRect(a[0]*ED.dw,a[1]*ED.dh,(b[0]-a[0])*ED.dw,(b[1]-a[1])*ED.dh);g.setLineDash([]);
+  }else if(dr){
+    g.lineCap=g.lineJoin='round';g.lineWidth=+$('edSize').value;g.strokeStyle=dr.tool==='keep'?'rgba(22,121,58,.55)':'rgba(192,38,45,.55)';
+    g.beginPath();dr.pts.forEach(([u,v],i)=>i?g.lineTo(u*ED.dw,v*ED.dh):g.moveTo(u*ED.dw,v*ED.dh));
+    if(dr.pts.length===1)g.lineTo(dr.pts[0][0]*ED.dw+0.1,dr.pts[0][1]*ED.dh);g.stroke();
+  }
+  if(!dr&&ED.hover&&ED.tool!=='box'){
+    g.lineWidth=1.5;g.strokeStyle=ED.tool==='keep'?'#16793a':'#c0262d';g.beginPath();
+    g.arc(ED.hover[0]*ED.dw,ED.hover[1]*ED.dh,+$('edSize').value/2,0,Math.PI*2);g.stroke();
+  }
+}
+const edDraw=$('edDraw');
+edDraw.addEventListener('pointerdown',e=>{if(ED.busy)return;edDraw.setPointerCapture(e.pointerId);ED.drag={tool:ED.tool,pts:[edPt(e)]};drawEdStroke()});
+edDraw.addEventListener('pointermove',e=>{
+  const p=edPt(e);ED.hover=p;
+  if(ED.drag){const pts=ED.drag.pts,last=pts[pts.length-1];
+    if(ED.drag.tool==='box')pts[1]=p;else if(Math.hypot(p[0]-last[0],p[1]-last[1])>0.002)pts.push(p)}
+  drawEdStroke();
+});
+edDraw.addEventListener('pointerleave',()=>{ED.hover=null;if(!ED.drag)drawEdStroke()});
+edDraw.addEventListener('pointerup',()=>{
+  const dr=ED.drag;ED.drag=null;if(!dr)return;
+  if(dr.tool==='box'){
+    const [a,b]=[dr.pts[0],dr.pts[dr.pts.length-1]];
+    if(Math.abs(b[0]-a[0])<0.02||Math.abs(b[1]-a[1])<0.02){drawEdStroke();$('edStatus').textContent='Drag a bigger box around the subject.';return}
+    maskOp({op:'select',rect:[a[0],a[1],b[0],b[1]]});
+  }else maskOp({op:'paint',smart:$('edSmart').checked,strokes:[{mode:dr.tool==='keep'?'keep':'erase',points:dr.pts,size:+$('edSize').value/ED.dw}]});
+});
 
 /* ---------- boot ---------- */
 (async function boot(){

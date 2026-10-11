@@ -5,9 +5,10 @@ from __future__ import annotations
 import hashlib
 import json
 from collections import OrderedDict
-from dataclasses import asdict
+from dataclasses import asdict, dataclass
 from pathlib import Path
 
+import numpy as np
 from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.responses import FileResponse, PlainTextResponse, Response
 from pydantic import BaseModel, Field
@@ -17,6 +18,7 @@ from . import __version__, printer
 from .calibrate import DEFAULT_PRESSES, press_ladder, smoke_test
 from .fit import center_area, fit_area
 from .gcode import UnsafeLayout
+from . import mask as masking
 from .image import Prep, load_gray
 from .layout import Layout
 from .paths import stats
@@ -31,7 +33,13 @@ MAX_PLANS = 8
 MAX_UPLOAD = 25 * 1024 * 1024
 
 app = FastAPI(title="BambuPlot")
-_images: OrderedDict[str, object] = OrderedDict()  # id -> grayscale array
+_images: OrderedDict[str, object] = OrderedDict()  # id -> RasterSource or SvgArt
+
+
+@dataclass
+class RasterSource:
+    gray: np.ndarray  # full-resolution grayscale, 0–1
+    state: masking.MaskState  # working-size color copy plus the subject mask
 _plans: OrderedDict[str, Plan] = OrderedDict()
 
 
@@ -54,12 +62,18 @@ def _remember(store: OrderedDict, key: str, value, limit: int):
 def _plan(req: PlanRequest) -> Plan:
     if req.effect not in effects.EFFECTS:
         raise HTTPException(422, f"Unknown effect '{req.effect}'")
-    gray = svg = None
+    gray = svg = full = None
+    mask_version = None
     if req.image_id:
         if req.image_id not in _images:
             raise HTTPException(404, "That image is no longer loaded. Upload it again.")
         src = _images[req.image_id]
-        svg, gray = (src, None) if isinstance(src, SvgArt) else (None, src)
+        if isinstance(src, SvgArt):
+            svg = src
+        else:
+            gray = src.gray
+            if src.state.mask is not None and req.prep.use_mask:
+                mask_version = src.state.version
     # Paths are area-local, so moving the area doesn't need a new plan; only
     # its size, the pen width, the touch-off corner and the inputs matter.
     lay = req.layout
@@ -72,13 +86,16 @@ def _plan(req: PlanRequest) -> Plan:
         "pen": lay.pen.width_mm,
         "touch": lay.touch_off,
         "seed": req.seed,
+        "mask": mask_version,
     }, sort_keys=True).encode()).hexdigest()
     if key in _plans:
         _plans.move_to_end(key)
         plan = _plans[key]
     else:
+        if mask_version is not None:
+            full = masking.full_mask(src.state, gray.shape)
         try:
-            plan = make_plan(lay, req.effect, req.params, req.prep, gray, req.seed, svg=svg)
+            plan = make_plan(lay, req.effect, req.params, req.prep, gray, req.seed, svg=svg, mask=full)
         except (ValueError, SvgError) as err:
             raise HTTPException(422, str(err))
         _remember(_plans, key, plan, MAX_PLANS)
@@ -97,7 +114,7 @@ def index():
 
 @app.get("/api/version")
 def version():
-    return {"version": __version__, "features": ["rotation", "printer", "vector"]}
+    return {"version": __version__, "features": ["rotation", "printer", "vector", "selection"]}
 
 
 @app.get("/api/effects")
@@ -147,12 +164,70 @@ async def upload_image(file: UploadFile = File(...)):
                 "warnings": art.warnings, "strokes": len(art.strokes), "fills": len(art.fills)}
     try:
         gray = load_gray(data)
+        state = masking.MaskState(rgb=masking.load_rgb(data))
+        alpha = masking.alpha_mask(data)
     except Exception:
         raise HTTPException(422, "That file isn't an image BambuPlot can read. Try a JPG, PNG or SVG.")
+    notes = []
+    if alpha is not None:  # an already cut-out PNG: start with its transparency as the selection
+        masking.set_mask(state, alpha)
+        state.history.clear()
+        notes.append("Transparent areas are treated as removed background. Edit or reset the selection to change that.")
     image_id = hashlib.sha1(data).hexdigest()[:16]
-    _remember(_images, image_id, gray, MAX_IMAGES)
+    _remember(_images, image_id, RasterSource(gray=gray, state=state), MAX_IMAGES)
     h, w = gray.shape
-    return {"id": image_id, "kind": "raster", "width": w, "height": h, "warnings": []}
+    return {"id": image_id, "kind": "raster", "width": w, "height": h, "warnings": notes,
+            "selection": masking.describe(state)}
+
+
+class MaskOp(BaseModel):
+    op: str  # auto | select | paint | invert | grow | reset | undo
+    rect: list[float] | None = None
+    strokes: list[dict] = Field(default_factory=list)
+    smart: bool = False
+    amount: int = 0
+
+
+def _raster(image_id: str) -> RasterSource:
+    src = _images.get(image_id)
+    if src is None:
+        raise HTTPException(404, "That image is no longer loaded. Upload it again.")
+    if not isinstance(src, RasterSource):
+        raise HTTPException(422, "Selection tools work on PNG and JPG pictures, not SVG files.")
+    return src
+
+
+@app.get("/api/image/{image_id}/mask")
+def get_mask(image_id: str):
+    return masking.describe(_raster(image_id).state)
+
+
+@app.post("/api/image/{image_id}/mask")
+def edit_mask(image_id: str, body: MaskOp):
+    st = _raster(image_id).state
+    method = None
+    try:
+        if body.op == "auto":
+            method = masking.auto(st)
+        elif body.op == "select":
+            if not body.rect or len(body.rect) != 4:
+                raise HTTPException(422, "Draw a box around the subject first.")
+            masking.select(st, body.rect)
+        elif body.op == "paint":
+            masking.paint(st, body.strokes, smart=body.smart)
+        elif body.op == "invert":
+            masking.invert(st)
+        elif body.op == "grow":
+            masking.grow(st, max(-40, min(40, body.amount)))
+        elif body.op == "reset":
+            masking.reset(st)
+        elif body.op == "undo":
+            masking.undo(st)
+        else:
+            raise HTTPException(404, f"Unknown selection tool '{body.op}'.")
+    except masking.MaskError as err:
+        raise HTTPException(422, str(err))
+    return masking.describe(st, method)
 
 
 @app.post("/api/plan")

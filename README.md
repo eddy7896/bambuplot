@@ -34,6 +34,20 @@ The Artwork tab accepts PNG, JPG and SVG files.
 | Centerline trace | Sketches, line art, handwriting | One stroke down the middle of each drawn line, instead of two outlines. |
 | Contour lines | Photos, portraits | Lines of equal brightness, like a topographic map. |
 
+### Subject selection and background removal
+
+For PNG and JPG pictures, the Source panel has **Remove background** and **Select subject…**. Removed areas become paper white, so no effect puts ink there. Everything runs locally with OpenCV; no AI model is downloaded.
+
+- **Remove background (automatic):**
+  - On a plain, even background (product shots, scans), it removes everything that matches the background color and touches the picture's edge.
+  - On busy photos, it uses GrabCut (OpenCV's built-in subject cut-out) and assumes the subject sits a little inside the frame.
+- **Select subject editor:**
+  - **Box select:** drag a box around the subject and GrabCut cuts it out.
+  - **Erase / Restore brushes:** paint areas out or back in. Turn on **Smart edges** to let GrabCut snap your strokes to the subject's real outline.
+  - **Invert, Grow, Shrink, Undo** (⌘Z), **Reset.** Keyboard: B, E and R switch tools.
+- **Transparent PNGs** (already cut out) start with their transparency as the selection.
+- **Use selection** switches the cut-out on and off without losing it. **Edge softness** feathers the cut.
+
 ### Effects for photos and pictures
 
 Every setting is a slider with a live value. Settings that only matter in some modes appear when they apply, and **Reset settings** restores the defaults. The image tone controls are sliders too, including **Paper white**, which leaves near-white areas without ink.
@@ -171,6 +185,7 @@ Every file passes through `safety.validate` before it is written. It is an allow
 | `effects.py` | Effect registry: tone effects, trace effects, SVG paths |
 | `vectorize.py` | Threshold, outlines, hatching, centerline skeleton tracing, contour lines |
 | `svgin.py` | SVG reader: shapes, transforms, fills, visibility |
+| `mask.py` | Background removal, box select (GrabCut), erase/restore brushes, undo |
 | `tsp.py` | Nearest-neighbor tour and 2-opt for stipple |
 | `paths.py` | Clamp, simplify, order, merge, stats |
 | `gcode.py` | Start sequence with pauses, stroke compiler |

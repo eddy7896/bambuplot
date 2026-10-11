@@ -22,6 +22,8 @@ class Prep(BaseModel):
     gamma: float = Field(1.0, gt=0)
     invert: bool = False
     paper_white: float = Field(0.0, ge=0, le=0.5)  # darkness below this becomes pure white
+    use_mask: bool = True  # apply the subject selection / background removal
+    mask_feather: float = Field(0.0, ge=0, le=5)  # mm of softening at the selection edge
     rotate: Literal[0, 90, 180, 270] = 0  # clockwise, applied before cropping
     px_per_mm: float = Field(4.0, gt=0, le=20)
 
@@ -105,19 +107,35 @@ def sample_image(cols: int, rows: int, w: float, h: float) -> np.ndarray:
     return np.clip(np.where(d < 1, sphere, bg), 0, 1).astype(np.float32)
 
 
-def prepare(gray: np.ndarray | None, w: float, h: float, prep: Prep | None = None) -> Tone:
-    """Fit the image to a w × h mm area and apply the tone adjustments."""
+def prepare(gray: np.ndarray | None, w: float, h: float, prep: Prep | None = None,
+            mask: np.ndarray | None = None) -> Tone:
+    """Fit the image to a w × h mm area and apply the tone adjustments.
+
+    ``mask`` (same shape as ``gray``, 1 = keep, 0 = removed) turns removed areas
+    paper-white after every adjustment, so no effect puts ink there.
+    """
     prep = prep or Prep()
     cols = max(8, int(round(w * prep.px_per_mm)))
     rows = max(8, int(round(h * prep.px_per_mm)))
+    keep = None
 
     if gray is None:
         data = sample_image(cols, rows, w, h)
     else:
+        use_mask = mask is not None and prep.use_mask
         if prep.rotate:
-            gray = np.rot90(gray, k=-(prep.rotate // 90))
+            k = -(prep.rotate // 90)
+            gray = np.rot90(gray, k=k)
+            mask = np.rot90(mask, k=k) if use_mask else None
         crop = cover_crop(gray, w / h)
         data = cv2.resize(crop, (cols, rows), interpolation=cv2.INTER_AREA)
+        if use_mask:
+            keep = cv2.resize(np.ascontiguousarray(cover_crop(mask, w / h), dtype=np.float32), (cols, rows),
+                              interpolation=cv2.INTER_AREA)
+            if prep.mask_feather > 0:
+                keep = cv2.GaussianBlur(keep, (0, 0), prep.mask_feather * prep.px_per_mm)
+            keep = np.clip(keep, 0, 1)
+            data = data * keep + (1 - keep)  # so local contrast doesn't react to the removed background
         if prep.clahe:
             u8 = np.clip(data * 255, 0, 255).astype(np.uint8)
             tiles = max(2, min(8, cols // 16))
@@ -130,4 +148,6 @@ def prepare(gray: np.ndarray | None, w: float, h: float, prep: Prep | None = Non
         data = 1.0 - data
     if prep.paper_white > 0:  # leave near-white areas blank instead of faint marks
         data = np.where(1.0 - data < prep.paper_white, 1.0, data)
+    if keep is not None:  # last, so invert or brightness can't put ink back on removed areas
+        data = data * keep + (1 - keep)
     return Tone(data=data.astype(np.float32), w=w, h=h)

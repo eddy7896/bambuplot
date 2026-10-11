@@ -38,6 +38,7 @@ def make_plan(
     gray: np.ndarray | None = None,
     seed: int = 0,
     svg: SvgArt | None = None,
+    mask: np.ndarray | None = None,
 ) -> Plan:
     a = layout.area
     eff = effects.EFFECTS.get(effect)
@@ -50,7 +51,7 @@ def make_plan(
     prep = prep or Prep()
     if eff.resolution and eff.resolution > prep.px_per_mm:
         prep = prep.model_copy(update={"px_per_mm": eff.resolution})
-    tone = prepare(None if svg is not None else gray, a.w, a.h, prep)
+    tone = prepare(None if svg is not None else gray, a.w, a.h, prep, mask=None if svg is not None else mask)
     ctx = effects.Context(pen_width=layout.pen.width_mm, seed=seed, svg=svg)
     raw = effects.run(effect, tone, params, ctx)
     lines = [rdp(l, SIMPLIFY_TOL) for l in clamp(raw, a.w, a.h)]
