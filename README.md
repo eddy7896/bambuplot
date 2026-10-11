@@ -121,6 +121,12 @@ Every setting is a slider with a live value. Settings that only matter in some m
 | | **Stipple** | Density contrast; drawn as one TSP line, pen taps, or small filled dots |
 | | **Dither dots** | Floyd–Steinberg, Atkinson or ordered dithering on a pen-sized grid |
 
+### Pen holder settings are shared
+
+The pen offset, pen width, Z heights and speeds describe your printer, not the artwork. They live in `~/.config/bambuplot/machine.json` and apply to every project. Change them in any project and the others follow, and new projects start with them.
+
+The offset is where the pen tip sits relative to the nozzle: +X right, +Y toward the back. A pen 30 mm in front of the nozzle is **Y −30**. With that offset, the pen can't reach the back 30 mm of the plate; the orange *pen reach* box on the plate shows the limit. If the offset is still 0, 0, a note in the safety checks reminds you to set it.
+
 ### Units
 
 **Bed → Units** switches page and paper measurements between **mm**, **cm** and **in**. This covers paper sizes, the drawing area, edge distances, margins, clips, tape, pen offsets, the alignment readings, and the labels on the plate. Snap follows the unit: 1 mm, or 1/16 in in inches.

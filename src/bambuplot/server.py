@@ -16,6 +16,7 @@ from pydantic import BaseModel, Field
 
 from . import effects
 from . import __version__, printer
+from . import machine as mach
 from . import projects as proj
 from .calibrate import DEFAULT_PRESSES, alignment_correction, alignment_test, press_ladder, smoke_test
 from .fit import center_area, fit_area
@@ -136,7 +137,9 @@ def list_effects():
 
 @app.get("/api/defaults")
 def defaults():
-    return {"layout": Layout().model_dump(), "prep": Prep().model_dump(),
+    m = mach.load()
+    layout = Layout(pen=m.pen, z=m.z, feed=m.feed)  # new projects start with this printer's holder settings
+    return {"layout": layout.model_dump(), "prep": Prep().model_dump(), "machine": m.model_dump(),
             "paper_sizes": [{"key": k, "label": PAPER_LABELS[k], "w": w, "h": h} for k, (w, h) in PAPER_SIZES.items()],
             "bed": [180, 180]}
 
@@ -556,3 +559,16 @@ def alignment(body: AlignmentBody):
     if body.left is None or body.front is None:
         return {"expected_left": c["expected_left"], "expected_front": c["expected_front"]}
     return c
+
+
+# ------------------------------------------------------------------ machine (shared by all projects)
+
+
+@app.get("/api/machine")
+def get_machine():
+    return mach.load().model_dump()
+
+
+@app.put("/api/machine")
+def put_machine(body: mach.Machine):
+    return mach.save(body).model_dump()

@@ -307,7 +307,14 @@ document.querySelectorAll('[id^="D."]').forEach(el=>el.addEventListener('input',
   if(side==='left')obj.x+=delta;else if(side==='right')obj.x-=delta;else if(side==='front')obj.y+=delta;else obj.y-=delta;
   obj.x=Math.round(obj.x*100)/100;obj.y=Math.round(obj.y*100)/100;sel=kind;changed(['moved']);
 }));
+/* Pen holder, Z heights and speeds belong to the printer: every project shares them. */
+let machineT=0;
+function saveMachine(){
+  clearTimeout(machineT);
+  machineT=setTimeout(()=>fetch('/api/machine',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({pen:L.pen,z:L.z,feed:L.feed})}).catch(()=>{}),500);
+}
 function changed(keys){
+  if(keys.some(k=>/^(pen|z|feed)\./.test(k)))saveMachine();
   render();refreshChecks();save();
   if(keys.some(k=>PLAN_KEYS.has(k)||k.startsWith('feed.')||k.startsWith('z.')))schedulePlan();
 }
@@ -990,6 +997,10 @@ async function openProject(pid){
   currentProject=null; // don't autosave while loading
   const st=d.state||{};
   L=deepMerge(DEF.layout,st.layout);job.prep=deepMerge(DEF.prep,st.prep);
+  try{ // the printer's shared holder settings win over whatever an older project saved
+    const m=await (await fetch('/api/machine')).json();
+    L.pen=deepMerge(DEF.layout.pen,m.pen);L.z=deepMerge(DEF.layout.z,m.z);L.feed=deepMerge(DEF.layout.feed,m.feed);
+  }catch(_){}
   job.effect=effects.some(e=>e.name===st.effect)?st.effect:'waves';
   job.params=(st.params&&typeof st.params==='object')?st.params:{};
   job.aiModel=typeof st.aiModel==='string'?st.aiModel:null;

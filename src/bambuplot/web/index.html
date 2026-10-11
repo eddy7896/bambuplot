@@ -289,8 +289,9 @@
           </div>
           <p class="foot">The pen never draws on tape. Pen-up moves stay inside the drawing area, so they don't cross it either.</p>
         </details>
-        <details class="group">
-          <summary><h2>Pen Holder</h2></summary>
+        <details class="group" open>
+          <summary><h2>Pen Holder <small class="shared">shared by all projects</small></h2></summary>
+          <p class="foot" style="margin:0 0 8px">Offset is where the pen tip sits relative to the nozzle: <b>+X right, +Y toward the back</b>. A pen 30 mm in front of the nozzle is <b>Y −30</b>.</p>
           <div class="grid3">
             <label class="field" title="Pen tip minus nozzle, +X right"><span>Offset X</span><input type="number" id="L.pen.offset_x" data-len step="0.5"></label>
             <label class="field" title="Pen tip minus nozzle, +Y toward the back"><span>Offset Y</span><input type="number" id="L.pen.offset_y" data-len step="0.5"></label>
@@ -312,7 +313,7 @@
           <div class="btnrow tight"><button class="btn small" type="button" id="addClip">Add Clip</button><button class="btn small" type="button" id="clearClips">Remove All</button></div>
         </details>
         <details class="group">
-          <summary><h2>Motion &amp; Layout File</h2></summary>
+          <summary><h2>Motion &amp; Layout File <small class="shared">speeds shared</small></h2></summary>
           <div class="grid3">
             <label class="field"><span>Draw F</span><input type="number" id="L.feed.draw" step="100" min="100"></label>
             <label class="field"><span>Travel F</span><input type="number" id="L.feed.travel" step="100" min="100"></label>

@@ -376,6 +376,11 @@ class Layout(BaseModel):
             if hang else "The sheet fits on the plate.",
         ))
 
+        if self.pen.offset_x == 0 and self.pen.offset_y == 0:
+            out.append(Check("warn", "Pen offset is 0, 0",
+                             "That means the pen tip is exactly under the nozzle. If your holder puts it beside the "
+                             "nozzle, set Bed → Pen Holder → Offset, or run the alignment test."))
+
         if self.z.press > 0.3:
             out.append(Check("warn", "Pen pressure", f"{self.z.press:g} mm is a lot for a rigid holder."))
         return out

@@ -64,3 +64,27 @@ def test_api():
     c = client.post("/api/alignment", json={"layout": lay, "left": 75, "front": 105}).json()
     assert c["error_x"] == pytest.approx(1)
     assert client.post("/api/calibrate/align", json=lay).status_code == 200
+
+
+def test_photo_case_pen_30mm_in_front_of_the_nozzle():
+    """The user's test: 103 × 141 sheet, right edge 41, back edge 18, offset left at 0."""
+    from bambuplot.layout import Area, Paper
+
+    lay = Layout(paper=Paper(size="custom", width=103, height=141, x=36, y=21))
+    lay.area = Area(x=47.5, y=32.5, w=79, h=117)
+    c = alignment_correction(lay, 51.0 + 2.0, 70.0 - 30.0)  # landed 2 right, 30 toward the front
+    assert c["pen_offset"] == pytest.approx([2.0, -30.0])
+    lay.pen.offset_x, lay.pen.offset_y = c["pen_offset"]
+    # With the offset set, the nozzle goes 30 mm further back so the pen lands on target.
+    from bambuplot.gcode import Stroke, compile_strokes
+    text = compile_strokes(lay, [Stroke(np.array([[87.0, 91.0], [88.0, 91.0]]))])
+    assert "X85.00 Y121.00" in text  # pen (87, 91) − offset (2, −30)
+    assert lay.reach().y2 == pytest.approx(150)  # the pen can't reach the back 30 mm of the plate
+
+
+def test_zero_offset_is_noted():
+    titles = [c.title for c in Layout().checks()]
+    assert "Pen offset is 0, 0" in titles
+    lay = Layout()
+    lay.pen.offset_y = -30
+    assert "Pen offset is 0, 0" not in [c.title for c in lay.checks()]
