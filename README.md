@@ -6,10 +6,14 @@ Turn images into pen-plotter G-code for the Bambu Lab A1 Mini, using a clip-on p
 
 ```bash
 uv sync                 # add --extra ai for AI background removal
-uv run bambuplot serve
+uv run bambuplot app    # starts BambuPlot and opens it in your browser
 ```
 
-Open http://127.0.0.1:8000. Two tabs:
+Or double-click **BambuPlot.command** in Finder. It opens a Terminal window that runs the app; keep that window open while you work, and close it (or press Ctrl+C) to quit.
+
+`bambuplot app` reuses a copy that's already running, and picks the next free port if 8000 is taken. Options: `--port 8080`, `--no-browser`.
+
+For working on the code itself, `uv run bambuplot serve` restarts the server whenever a file changes. Then open http://127.0.0.1:8000. Two tabs:
 
 - **Bed setup:** place the paper and clips on the 180 × 180 plate, enter your pen offset, and drag out the drawing area. Safety checks update live.
 - **Artwork:** load an image, adjust tone, pick an effect (wave lines, halftone, spiral, TSP stipple) and tune it. The preview shows the actual paths; the progress slider replays the drawing order.

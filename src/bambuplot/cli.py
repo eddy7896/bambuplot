@@ -45,6 +45,68 @@ def cmd_serve(args):
                 reload_dirs=[pkg], access_log=args.verbose)
 
 
+def _bambuplot_at(host: str, port: int, timeout: float = 0.6) -> bool:
+    """Is a BambuPlot server answering on this address?"""
+    import json
+    import urllib.request
+
+    try:
+        with urllib.request.urlopen(f"http://{host}:{port}/api/version", timeout=timeout) as r:
+            return "features" in json.loads(r.read().decode())
+    except Exception:
+        return False
+
+
+def _port_free(host: str, port: int) -> bool:
+    import socket
+
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        try:
+            sock.bind((host, port))
+            return True
+        except OSError:
+            return False
+
+
+def cmd_app(args):
+    """Start BambuPlot (if it isn't running yet) and open it in the browser."""
+    import threading
+    import time
+    import webbrowser
+
+    host, port = args.host, args.port
+    if _bambuplot_at(host, port):
+        url = f"http://{host}:{port}/"
+        print(f"BambuPlot is already running at {url}", flush=True)
+        if not args.no_browser:
+            webbrowser.open(url)
+        return
+    for candidate in range(port, port + 20):  # something else on 8000? use the next free port
+        if _port_free(host, candidate):
+            port = candidate
+            break
+    else:
+        raise SystemExit(f"No free port between {args.port} and {args.port + 19}. Try --port.")
+    url = f"http://{host}:{port}/"
+
+    def open_when_ready():
+        for _ in range(150):  # up to ~30 s for the first start
+            if _bambuplot_at(host, port, timeout=0.3):
+                print(f"BambuPlot is ready at {url}", flush=True)
+                if not args.no_browser:
+                    webbrowser.open(url)
+                return
+            time.sleep(0.2)
+        print(f"BambuPlot didn't answer at {url}. Check the messages above.", flush=True)
+
+    threading.Thread(target=open_when_ready, daemon=True).start()
+    print(f"Starting BambuPlot at {url}  (press Ctrl+C to quit)", flush=True)
+    import uvicorn
+
+    uvicorn.run("bambuplot.server:app", host=host, port=port, access_log=False, log_level="warning")
+
+
 def cmd_plot(args):
     layout = _layout(args.layout)
     is_svg = bool(args.image) and args.image.lower().endswith(".svg")
@@ -140,6 +202,12 @@ def main(argv=None):
     s.add_argument("--no-reload", action="store_true", help="don't restart when the code changes")
     s.add_argument("--verbose", action="store_true", help="log every request")
     s.set_defaults(fn=cmd_serve)
+
+    a = sub.add_parser("app", help="start BambuPlot and open it in your browser")
+    a.add_argument("--host", default="127.0.0.1")
+    a.add_argument("--port", type=int, default=8000)
+    a.add_argument("--no-browser", action="store_true", help="start the server without opening a browser")
+    a.set_defaults(fn=cmd_app)
 
     p = sub.add_parser("plot", help="turn an image into G-code")
     p.add_argument("image", nargs="?", help="JPG/PNG/SVG; omit to use the built-in sample")
