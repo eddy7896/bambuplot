@@ -2,7 +2,25 @@ const $=id=>document.getElementById(id);
 let PAPERS={A5:[148,210],A6:[105,148]}; // replaced by the server's list at boot
 const STORE='bambuplot.v1';
 const PLAN_KEYS=new Set(['area.w','area.h','pen.width_mm','touch_off']);
-let L=null, DEF=null, effects=[], job={effect:'waves',params:{},prep:{},image:null,extras:{}};
+let L=null, DEF=null, effects=[];
+/* Layers: each has its own picture, effect, settings, tone, placement and pen.
+   job.effect / params / prep / image always mean the active layer, so the Picture and Effect tabs edit it. */
+const LAYERS={list:[],active:0};
+const act=()=>LAYERS.list[LAYERS.active]||LAYERS.list[0];
+const job={
+  get effect(){return act()?.effect}, set effect(v){act().effect=v},
+  get params(){return act()?.params}, set params(v){act().params=v},
+  get prep(){return act()?.prep}, set prep(v){act().prep=v},
+  get image(){return act()?.image}, set image(v){act().image=v},
+  get lastRaster(){return act()?.lastRaster}, set lastRaster(v){act().lastRaster=v},
+  extras:{}, aiModel:null,
+};
+const FULL_PLACE={x:0,y:0,w:1,h:1,rotation:0};
+const newLayerId=()=>'l'+Math.random().toString(36).slice(2,9);
+function newLayer(over={}){
+  return {id:newLayerId(),name:'',visible:true,effect:'waves',params:{},prep:deepMerge(DEF.prep,null),image:null,
+          place:{...FULL_PLACE},pen:1,lastRaster:null,...over};
+}
 let plan=null, checks=[], sel='area', drag=null, V=null, snap=true;
 let drawing=null, showDims=true; // draw-on-plate tool state; edge dimensions on/off
 let lineStr=[], travelStr=[], totalPts=0, planSeq=0;
@@ -66,7 +84,8 @@ function save(){
   dirty=true;setDocState(`Edited · ${docInfo()}`);
   clearTimeout(saveT);saveT=setTimeout(saveNow,900);
 }
-const projectBody=()=>({name:$('projName').value,state:{layout:L,effect:job.effect,params:job.params,prep:job.prep,aiModel:job.aiModel,extras:job.extras},image_id:job.image?.id||null});
+const projectBody=()=>({name:$('projName').value,state:{layout:L,effect:job.effect,params:job.params,prep:job.prep,aiModel:job.aiModel,extras:job.extras,
+  layers:LAYERS.list.map(l=>({...layerBody(l),params:l.params})),active:LAYERS.active},image_id:job.image?.id||null});
 async function saveNow(){
   clearTimeout(saveT);
   if(!currentProject||!dirty)return;
@@ -85,7 +104,10 @@ window.addEventListener('beforeunload',()=>{
 
 /* ---------- server calls ---------- */
 const post=(url,body)=>fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
-const planBody=()=>({layout:L,effect:job.effect,params:job.params[job.effect]||{},prep:job.prep,image_id:job.image?.id||null,extras:job.extras});
+const layerBody=l=>({id:l.id,name:l.name,visible:l.visible,effect:l.effect,params:l.params[l.effect]||{},prep:l.prep,
+  image_id:l.image?.id||null,place:l.place,pen:l.pen});
+const planBody=()=>({layout:L,effect:job.effect,params:job.params[job.effect]||{},prep:job.prep,image_id:job.image?.id||null,
+  extras:job.extras,layers:LAYERS.list.map(layerBody)});
 function setStatus(t,err){const s=$('status');s.textContent=t;s.classList.toggle('err',!!err)}
 
 let planT=0;
@@ -95,11 +117,13 @@ async function runPlan(){
   try{
     const r=await post('/api/plan',planBody());
     if(seq!==planSeq)return;
-    if(r.status===404&&job.image){job.image=null;renderThumb();buildEffects();setStatus('The server lost the file (it was restarted). Choose it again.',true);schedulePlan(0);return}
+    if(r.status===404&&LAYERS.list.some(l=>l.image)){for(const l of LAYERS.list)l.image=null;renderThumb();buildEffects();renderLayers();setStatus('The server lost the pictures (it was restarted). Choose them again.',true);schedulePlan(0);return}
     if(!r.ok)throw new Error((await r.json().catch(()=>({}))).detail||r.statusText);
     const d=await r.json();if(seq!==planSeq)return;
-    plan={lines:d.lines,stats:d.stats,w:L.area.w,h:L.area.h};checks=d.checks;
-    buildInk();renderChecks();renderOver();renderStats();setStatus(`${job.effect} · ${d.stats.points.toLocaleString()} points`);
+    plan={groups:d.groups||[{color:'#1d1d1f',lines:d.lines}],stats:d.stats,w:L.area.w,h:L.area.h};checks=d.checks;
+    buildInk();renderChecks();renderOver();renderStats();
+    const visible=LAYERS.list.filter(l=>l.visible).length;
+    setStatus(`${visible>1?`${visible} layers`:job.effect} · ${d.stats.points.toLocaleString()} points${d.stats.pens>1?` · ${d.stats.pens} pens`:''}`);
   }catch(e){if(seq===planSeq)setStatus('Preview failed: '+e.message,true)}
   finally{if(seq===planSeq)$('inkg').classList.remove('stale')}
 }
@@ -233,40 +257,44 @@ function placeInk(){
   const a=areaBox(),g=$('inkg'),pw=plan?.w||a.w,ph=plan?.h||a.h,[cx,cy]=centerOf(a);
   g.setAttribute('transform',`translate(${X(cx)} ${Y(cy)}) rotate(${-a.rot}) scale(${a.w/pw} ${a.h/ph}) translate(${-pw/2} ${-ph/2})`);
   const c=$('inkClipRect');c.setAttribute('width',pw);c.setAttribute('height',ph);
+  const pl=act()?.place||FULL_PLACE,fw=pl.w*pw,fh=pl.h*ph,fx=pl.x*pw,fy=ph-(pl.y+pl.h)*ph;
+  $('srcframe').setAttribute('transform',`translate(${fx} ${fy}) rotate(${-(pl.rotation||0)} ${fw/2} ${fh/2})`);
+  const lf=$('layerframe');lf.setAttribute('width',fw);lf.setAttribute('height',fh);
+  lf.setAttribute('visibility',isFullPlace(pl)?'hidden':'visible');
   const raster=srcKind()==='raster',turn=raster?(+job.prep.rotate||0):0,side=turn===90||turn===270;
   const iw=job.image?.w||1,ih=job.image?.h||1,cr=(raster&&job.prep.crop)||[0,0,1,1];
-  const sw=side?ph:pw,sh=side?pw:ph,wrap=$('srcwrap'),im=$('srcimg');
-  wrap.setAttribute('x',(pw-sw)/2);wrap.setAttribute('y',(ph-sh)/2);wrap.setAttribute('width',sw);wrap.setAttribute('height',sh);
+  const sw=side?fh:fw,sh=side?fw:fh,wrap=$('srcwrap'),im=$('srcimg');
+  wrap.setAttribute('x',(fw-sw)/2);wrap.setAttribute('y',(fh-sh)/2);wrap.setAttribute('width',sw);wrap.setAttribute('height',sh);
   wrap.setAttribute('viewBox',`${cr[0]*iw} ${cr[1]*ih} ${(cr[2]-cr[0])*iw} ${(cr[3]-cr[1])*ih}`);
   wrap.setAttribute('preserveAspectRatio',!raster||job.prep.fit==='fit'?'xMidYMid meet':'xMidYMid slice');
   im.setAttribute('width',iw);im.setAttribute('height',ih);
-  $('srcturn').setAttribute('transform',turn?`rotate(${turn} ${pw/2} ${ph/2})`:'');
+  $('srcturn').setAttribute('transform',turn?`rotate(${turn} ${fw/2} ${fh/2})`:'');
   $('srcturn').setAttribute('visibility',job.image&&$('showImg').checked?'visible':'hidden');
-  $('ink').style.strokeWidth=L.pen.width_mm;
+  $('inklayers').style.strokeWidth=L.pen.width_mm;
 }
+const lineD=(l,h,n=l.length)=>{const pts=l.length===1?[l[0],[l[0][0]+0.01,l[0][1]]]:l.slice(0,Math.max(2,n));
+  let d='M'+pts[0][0]+' '+(h-pts[0][1]);for(let i=1;i<pts.length;i++)d+='L'+pts[i][0]+' '+(h-pts[i][1]);return d};
 function buildInk(){
-  lineStr=[];travelStr=[];totalPts=0;let prev=null;const h=plan.h;
-  for(const l of plan.lines){
-    const pts=l.length===1?[l[0],[l[0][0]+0.01,l[0][1]]]:l;
-    let s='M'+pts[0][0]+' '+(h-pts[0][1]);for(let i=1;i<pts.length;i++)s+='L'+pts[i][0]+' '+(h-pts[i][1]);
-    lineStr.push(s);totalPts+=l.length;
-    travelStr.push(prev?`M${prev[0]} ${h-prev[1]}L${l[0][0]} ${h-l[0][1]}`:'');prev=l[l.length-1];
+  const h=plan.h;let prev=null;totalPts=0;travelStr=[];
+  for(const g of plan.groups){
+    g.strs=g.lines.map(l=>lineD(l,h));
+    for(const l of g.lines){totalPts+=l.length;travelStr.push(prev?`M${prev[0]} ${h-prev[1]}L${l[0][0]} ${h-l[0][1]}`:'');prev=l[l.length-1]}
   }
   drawProgress();placeInk();
 }
+/* Draw the plan up to the replay slider, one path per pen in that pen's colour. */
 function drawProgress(){
-  if(!plan)return;const f=+$('progress').value/1000;
-  let ink='',tr='';
-  if(f>=1){ink=lineStr.join('');tr=travelStr.join('')}
-  else{
-    let budget=Math.round(totalPts*f);const h=plan.h;
-    for(let i=0;i<plan.lines.length&&budget>0;i++){
-      const l=plan.lines[i];tr+=travelStr[i];
-      if(l.length<=budget){ink+=lineStr[i];budget-=l.length}
-      else{let s='M'+l[0][0]+' '+(h-l[0][1]);for(let k=1;k<budget;k++)s+='L'+l[k][0]+' '+(h-l[k][1]);ink+=s;budget=0}
+  if(!plan)return;const f=+$('progress').value/1000,h=plan.h;
+  let budget=f>=1?Infinity:Math.round(totalPts*f),k=0,tr='',html='';
+  for(const g of plan.groups){
+    let d='';
+    for(let i=0;i<g.lines.length&&budget>0;i++,k++){
+      const l=g.lines[i];tr+=travelStr[k];
+      if(l.length<=budget){d+=g.strs[i];budget-=l.length}else{d+=lineD(l,h,budget);budget=0}
     }
+    if(d)html+=`<path class="inkpath" d="${d}" stroke="${g.color}"></path>`;
   }
-  $('ink').setAttribute('d',ink);$('travel').setAttribute('d',$('showTravel').checked?tr:'');
+  $('inklayers').innerHTML=html;$('travel').setAttribute('d',$('showTravel').checked?tr:'');
 }
 function renderChecks(){
   $('checks').innerHTML=checks.map(c=>`<li class="${c.state}"><b>${esc(c.title)}</b><small>${esc(c.detail)}</small></li>`).join('');
@@ -428,7 +456,7 @@ function buildParams(){
   applyWhen();
 }
 $('resetParams').onclick=()=>{job.params[job.effect]={};buildParams();save();schedulePlan(0)};
-$('effect').onchange=e=>{job.effect=e.target.value;buildParams();save();schedulePlan(0)};
+$('effect').onchange=e=>{job.effect=e.target.value;buildParams();renderLayers();save();schedulePlan(0)};
 
 /* image */
 function renderThumb(){
@@ -458,7 +486,7 @@ async function openFile(f){
     if(job.image?.url)URL.revokeObjectURL(job.image.url);
     job.prep.crop=null;
     job.image={id:d.id,kind:d.kind,w:d.width,h:d.height,name:f.name,warnings:d.warnings||[],strokes:d.strokes,fills:d.fills,sel:d.selection||null,url:URL.createObjectURL(f)};
-    renderThumb();buildEffects();save();schedulePlan(0);selectTab('tab-effect');
+    renderThumb();buildEffects();renderLayers();save();schedulePlan(0);selectTab('tab-effect');
   }catch(err){setStatus('Upload failed: '+err.message,true)}
 }
 
@@ -938,6 +966,93 @@ $('sigFile').onchange=async e=>{
   }catch(_){msg('sigMsg','Could not reach the BambuPlot server.','err')}
 };
 
+/* ---------- layers ---------- */
+const isFullPlace=p=>!p||(Math.abs(p.x)<1e-9&&Math.abs(p.y)<1e-9&&Math.abs(p.w-1)<1e-9&&Math.abs(p.h-1)<1e-9&&!p.rotation);
+const penInfo=n=>(DEF.pens||[]).find(p=>p.pen===n)||{pen:n,label:`Pen ${n}`,colour:'',color:'#1d1d1f'};
+function layerTitle(l){return l.name||effects.find(e=>e.name===l.effect)?.label||l.effect}
+function layerSub(l){return `${l.image?l.image.name:'Sample picture'} · ${penInfo(l.pen).label}`}
+const EYE_ON='<svg viewBox="0 0 20 20"><path d="M2 10s3-5.5 8-5.5S18 10 18 10s-3 5.5-8 5.5S2 10 2 10Z"/><circle cx="10" cy="10" r="2.4"/></svg>';
+const EYE_OFF='<svg viewBox="0 0 20 20"><path d="M3 3l14 14M7.5 5.2A8 8 0 0 1 10 4.5c5 0 8 5.5 8 5.5a14 14 0 0 1-2.4 3M12.5 14.8a8 8 0 0 1-2.5.7c-5 0-8-5.5-8-5.5a14 14 0 0 1 2.4-3"/></svg>';
+function renderLayers(){
+  // Top of the list = drawn last, like layers in other apps.
+  $('layerList').innerHTML=LAYERS.list.map((l,i)=>({l,i})).reverse().map(({l,i})=>`
+    <li role="option" data-i="${i}" aria-selected="${i===LAYERS.active}" class="${l.visible?'':'hidden'}">
+      <button class="eye" type="button" data-eye="${i}" aria-label="${l.visible?'Hide':'Show'} layer" title="${l.visible?'Hide':'Show'} layer">${l.visible?EYE_ON:EYE_OFF}</button>
+      <span class="dot" style="background:${penInfo(l.pen).color}" title="${esc(penInfo(l.pen).label)}"></span>
+      <span class="txt"><b>${esc(layerTitle(l))}</b><span class="sub">${esc(layerSub(l))}</span></span>
+      <button class="more" type="button" data-more="${i}" aria-label="Layer actions" aria-haspopup="menu">⋯</button>
+    </li>`).join('');
+  syncLayerSettings();
+}
+function selectLayer(i){
+  LAYERS.active=i;renderLayers();buildEffects();renderThumb();syncInputs();placeInk();fillAll();
+}
+function layersChanged(){renderLayers();save();schedulePlan(0)}
+$('layerList').addEventListener('click',e=>{
+  const eye=e.target.closest('[data-eye]');
+  if(eye){const l=LAYERS.list[+eye.dataset.eye];l.visible=!l.visible;layersChanged();return}
+  const more=e.target.closest('[data-more]');
+  if(more){
+    LAYERS.menuFor=+more.dataset.more;const m=$('layerItemMenu'),r=more.getBoundingClientRect();
+    m.style.top=`${r.bottom+4}px`;m.style.left=`${Math.max(8,r.right-220)}px`;m.style.right='auto';m.showPopover();return;
+  }
+  const li=e.target.closest('li');if(li)selectLayer(+li.dataset.i);
+});
+$('layerItemMenu').addEventListener('click',e=>{
+  const act_=e.target.closest('button')?.dataset.act,i=LAYERS.menuFor;if(act_==null||i==null)return;
+  $('layerItemMenu').hidePopover();const list=LAYERS.list;
+  if(act_==='duplicate'){
+    const src=list[i],copy=newLayer({...JSON.parse(JSON.stringify({...src,image:null,id:''})),id:newLayerId(),image:src.image,name:src.name?`${src.name} copy`:''});
+    list.splice(i+1,0,copy);LAYERS.active=i+1;
+  }else if(act_==='up'&&i<list.length-1){[list[i],list[i+1]]=[list[i+1],list[i]];LAYERS.active=i+1}
+  else if(act_==='down'&&i>0){[list[i],list[i-1]]=[list[i-1],list[i]];LAYERS.active=i-1}
+  else if(act_==='delete'){
+    if(list.length===1){setStatus('A project needs at least one layer.',true);return}
+    list.splice(i,1);LAYERS.active=Math.min(LAYERS.active>=i?Math.max(0,LAYERS.active-1):LAYERS.active,list.length-1);
+  }
+  selectLayer(LAYERS.active);save();schedulePlan(0);
+});
+$('layerMenu').addEventListener('click',e=>{
+  const kind=e.target.closest('button')?.dataset.add;if(!kind)return;$('layerMenu').hidePopover();
+  const cur=act();
+  // A stacked effect starts with the next pen, and a trace if the current layer is a tone effect.
+  const layer=kind==='same'
+    ?newLayer({image:cur.image,prep:JSON.parse(JSON.stringify(cur.prep)),pen:Math.min(6,cur.pen+1),
+      effect:cur.image?.kind==='svg'?'svg':(cur.effect==='centerline'?'flow':'centerline')})
+    :newLayer({pen:Math.min(6,cur.pen+1)});
+  LAYERS.list.push(layer);selectLayer(LAYERS.list.length-1);selectTab(kind==='picture'?'tab-picture':'tab-effect');
+  save();schedulePlan(0);
+  if(kind==='picture')$('file').click();
+});
+
+/* Layer settings (Effect tab) */
+function syncLayerSettings(){
+  const l=act();if(!l)return;
+  if(document.activeElement!==$('lyName'))$('lyName').value=l.name;$('lyName').placeholder=layerTitle({...l,name:''});
+  $('lyPen').innerHTML=(DEF.pens||[]).map(p=>`<option value="${p.pen}">${esc(p.label)} · ${esc(p.colour)}</option>`).join('');$('lyPen').value=String(l.pen);
+  $('lyBand').hidden=srcKind()==='svg';
+  for(const [id,k] of [['lyLo','band_lo'],['lyHi','band_hi']]){const v=l.prep[k]??(k==='band_lo'?0:1);if(document.activeElement!==$(id))$(id).value=v;$(id+'.out').textContent=`${Math.round(v*100)}%`}
+  const full=isFullPlace(l.place);$('lyFull').checked=full;$('lyPlace').hidden=full;
+  for(const [id,k,f] of [['lyX','x',100],['lyY','y',100],['lyW','w',100],['lyH','h',100],['lyR','rotation',1]])
+    if(document.activeElement!==$(id))$(id).value=Math.round((l.place[k]||0)*f*10)/10;
+  $('layerGroup').querySelector('h2').textContent=LAYERS.list.length>1?`Layer · ${layerTitle(l)}`:'Layer';
+}
+$('lyName').addEventListener('input',()=>{act().name=$('lyName').value.slice(0,60);renderLayers();save()});
+$('lyPen').addEventListener('input',()=>{act().pen=+$('lyPen').value;renderLayers();save();schedulePlan(0)});
+for(const [id,k] of [['lyLo','band_lo'],['lyHi','band_hi']])$(id).addEventListener('input',()=>{
+  let v=parseFloat($(id).value);const p=act().prep;
+  if(k==='band_lo')v=Math.min(v,(p.band_hi??1)-0.02);else v=Math.max(v,(p.band_lo??0)+0.02);
+  p[k]=v;$(id).value=v;$(id+'.out').textContent=`${Math.round(v*100)}%`;fillRange($(id));save();schedulePlan(350);
+});
+$('lyFull').addEventListener('input',()=>{
+  const l=act();l.place=$('lyFull').checked?{...FULL_PLACE}:{x:0.25,y:0.25,w:0.5,h:0.5,rotation:0};
+  syncLayerSettings();placeInk();save();schedulePlan(0);
+});
+for(const [id,k,f] of [['lyX','x',100],['lyY','y',100],['lyW','w',100],['lyH','h',100],['lyR','rotation',1]])$(id).addEventListener('input',()=>{
+  const v=parseFloat($(id).value);if(!isFinite(v))return;if((k==='w'||k==='h')&&v<2)return;
+  act().place[k]=k==='rotation'?normAng(v):v/f;placeInk();save();schedulePlan(300);
+});
+
 /* ---------- units ---------- */
 function paperOptions(){
   if(!DEF?.paper_sizes)return;
@@ -1082,29 +1197,39 @@ async function openProject(pid){
   catch(_){location.hash='#/';return}
   currentProject=null; // don't autosave while loading
   const st=d.state||{};
-  L=deepMerge(DEF.layout,st.layout);job.prep=deepMerge(DEF.prep,st.prep);
+  L=deepMerge(DEF.layout,st.layout);
   try{ // the printer's shared holder settings win over whatever an older project saved
     const m=await (await fetch('/api/machine')).json();
     L.bed=deepMerge(DEF.layout.bed,m.bed);L.pen=deepMerge(DEF.layout.pen,m.pen);L.z=deepMerge(DEF.layout.z,m.z);L.feed=deepMerge(DEF.layout.feed,m.feed);
   }catch(_){}
-  job.effect=effects.some(e=>e.name===st.effect)?st.effect:'waves';
-  job.params=(st.params&&typeof st.params==='object')?st.params:{};
   job.aiModel=typeof st.aiModel==='string'?st.aiModel:null;
   job.extras=deepMerge(DEF.extras||{},st.extras);
-  if(job.image?.url)URL.revokeObjectURL(job.image.url);
-  job.image=null;plan=null;$('ink').setAttribute('d','');$('travel').setAttribute('d','');
-  if(d.image){
+  for(const l of LAYERS.list)if(l.image?.url)URL.revokeObjectURL(l.image.url);
+  plan=null;$('inklayers').innerHTML='';$('travel').setAttribute('d','');
+  // Pictures: one shared object per image id, so layers on the same picture share its selection.
+  const pics={};
+  for(const [iid,im] of Object.entries(d.images||{})){
     try{
-      const blob=await (await fetch(`/api/projects/${pid}/source`)).blob();
-      const im=d.image;
-      job.image={id:im.id,kind:im.kind,w:im.width,h:im.height,name:im.name||'picture',warnings:im.warnings||[],strokes:im.strokes,fills:im.fills,sel:im.selection||null,url:URL.createObjectURL(blob)};
-    }catch(_){job.image=null}
+      const blob=await (await fetch(`/api/projects/${pid}/sources/${iid}`)).blob();
+      pics[iid]={id:im.id,kind:im.kind,w:im.width,h:im.height,name:im.name||'picture',warnings:im.warnings||[],strokes:im.strokes,fills:im.fills,sel:im.selection||null,url:URL.createObjectURL(blob)};
+    }catch(_){}
+  }
+  const okEffect=e=>effects.some(x=>x.name===e)?e:'waves';
+  if(Array.isArray(st.layers)&&st.layers.length){
+    LAYERS.list=st.layers.map(l=>newLayer({id:l.id||newLayerId(),name:l.name||'',visible:l.visible!==false,effect:okEffect(l.effect),
+      params:(l.params&&typeof l.params==='object')?l.params:{},prep:deepMerge(DEF.prep,l.prep),image:l.image_id?pics[l.image_id]||null:null,
+      place:{...FULL_PLACE,...(l.place||{})},pen:l.pen||1}));
+    LAYERS.active=Math.min(Math.max(0,st.active|0),LAYERS.list.length-1);
+  }else{ // a project from before layers: one layer
+    LAYERS.list=[newLayer({effect:okEffect(st.effect),params:(st.params&&typeof st.params==='object')?st.params:{},
+      prep:deepMerge(DEF.prep,st.prep),image:d.image?pics[d.image.id]||null:null})];
+    LAYERS.active=0;
   }
   $('projName').value=d.name;document.title=`${d.name} · BambuPlot`;
   document.querySelector('.app').hidden=false;$('dashboard').hidden=true;
-  buildEffects();render();renderThumb();refreshChecks();schedulePlan(0);loadAI();loadSignature();
+  buildEffects();render();renderThumb();renderLayers();refreshChecks();schedulePlan(0);loadAI();loadSignature();
   if(job.image?.sel?.has_mask)applySel(job.image.sel);
-  selectTab(job.effect==='alignment'?'tab-setup':job.image?'tab-effect':'tab-picture');
+  selectTab(job.effect==='alignment'?'tab-setup':job.image||LAYERS.list.length>1?'tab-effect':'tab-picture');
   $('alignGroup').open=job.effect==='alignment';for(const id of ['alMeasL','alMeasF','alW','alH'])$(id).value='';$('alResult').hidden=true;
   currentProject=pid;dirty=false;setDocState(`Saved · ${docInfo()}`);
   if(d.warning)showProblems(d.warning);
@@ -1179,7 +1304,7 @@ function askDelete(c){
 (async function boot(){
   try{
     const [defs,effs]=await Promise.all([fetch('/api/defaults').then(r=>r.json()),fetch('/api/effects').then(r=>r.json())]);
-    DEF=defs;effects=effs;L=deepMerge(defs.layout,null);job.prep=deepMerge(defs.prep,null);
+    DEF=defs;effects=effs;L=deepMerge(defs.layout,null);LAYERS.list=[newLayer()];LAYERS.active=0;
     if(defs.paper_sizes){
       PAPERS=Object.fromEntries(defs.paper_sizes.map(p=>[p.key,[p.w,p.h]]));
     }

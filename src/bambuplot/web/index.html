@@ -44,6 +44,19 @@
   </main>
 </div>
 
+<div popover id="layerMenu" class="menu" role="menu">
+  <button type="button" data-add="same" role="menuitem">Another effect on this picture</button>
+  <button type="button" data-add="picture" role="menuitem">New picture or SVG…</button>
+  <button type="button" data-add="sample" role="menuitem">Sample picture</button>
+</div>
+<div popover id="layerItemMenu" class="menu" role="menu">
+  <button type="button" data-act="duplicate" role="menuitem">Duplicate</button>
+  <button type="button" data-act="up" role="menuitem">Move Up</button>
+  <button type="button" data-act="down" role="menuitem">Move Down</button>
+  <hr>
+  <button type="button" data-act="delete" role="menuitem" class="danger">Delete Layer</button>
+</div>
+
 <div popover id="cardMenu" class="menu" role="menu">
   <button type="button" data-act="open" role="menuitem">Open</button>
   <button type="button" data-act="rename" role="menuitem">Rename</button>
@@ -93,9 +106,12 @@
         </defs>
         <g id="under"></g>
         <g id="inkg" clip-path="url(#inkClip)">
-          <g id="srcturn" class="src" visibility="hidden"><svg id="srcwrap" x="0" y="0" width="1" height="1" viewBox="0 0 1 1" preserveAspectRatio="xMidYMid slice" overflow="hidden"><image id="srcimg" preserveAspectRatio="none" x="0" y="0" width="1" height="1" href=""></image></svg></g>
+          <g id="srcframe">
+            <g id="srcturn" class="src" visibility="hidden"><svg id="srcwrap" x="0" y="0" width="1" height="1" viewBox="0 0 1 1" preserveAspectRatio="xMidYMid slice" overflow="hidden"><image id="srcimg" preserveAspectRatio="none" x="0" y="0" width="1" height="1" href=""></image></svg></g>
+            <rect id="layerframe" x="0" y="0" width="1" height="1" visibility="hidden"></rect>
+          </g>
           <path id="travel" d=""></path>
-          <path id="ink" d=""></path>
+          <g id="inklayers"></g>
         </g>
         <g id="over"></g>
       </svg>
@@ -111,6 +127,15 @@
 
     <!-- ============================== inspector ============================== -->
     <aside class="inspector" aria-label="Inspector">
+      <section class="layers" aria-label="Layers">
+        <div class="layers-head">
+          <h2>Layers</h2>
+          <button class="iconbtn add" type="button" id="layerAdd" popovertarget="layerMenu" title="Add a layer" aria-label="Add a layer">
+            <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 4v12M4 10h12"/></svg>
+          </button>
+        </div>
+        <ul class="layerlist" id="layerList" role="listbox" aria-label="Layers"></ul>
+      </section>
       <div class="segmented tabs" role="tablist">
         <button role="tab" id="tab-picture" aria-selected="true" aria-controls="pane-picture" title="⌘1">Picture</button>
         <button role="tab" id="tab-effect" aria-selected="false" aria-controls="pane-effect" title="⌘2">Effect</button>
@@ -166,6 +191,26 @@
         <section class="group">
           <h2>Settings</h2>
           <div class="params" id="params"></div>
+        </section>
+        <section class="group" id="layerGroup">
+          <h2>Layer</h2>
+          <label class="field wide" style="margin-top:0"><span>Name</span><input type="text" id="lyName" autocomplete="off" spellcheck="false"></label>
+          <div class="srow sel" style="margin-top:6px"><label for="lyPen">Pen</label><select id="lyPen"></select></div>
+          <div id="lyBand">
+            <div class="srow" title="Lightest tone this layer draws: 0 is white paper"><label for="lyLo">Tones from</label><input type="range" id="lyLo" min="0" max="1" step="0.01"><output id="lyLo.out"></output></div>
+            <div class="srow" title="Darkest tone this layer draws: 1 is black"><label for="lyHi">Tones to</label><input type="range" id="lyHi" min="0" max="1" step="0.01"><output id="lyHi.out"></output></div>
+          </div>
+          <div class="srow sw"><label for="lyFull">Fill the drawing area</label><input type="checkbox" class="switch" id="lyFull"></div>
+          <div id="lyPlace" hidden>
+            <div class="grid3">
+              <label class="field"><span>Left %</span><input type="number" id="lyX" step="1"></label>
+              <label class="field"><span>Front %</span><input type="number" id="lyY" step="1"></label>
+              <label class="field"><span>Turn °</span><input type="number" id="lyR" step="1"></label>
+              <label class="field"><span>Width %</span><input type="number" id="lyW" step="1" min="2"></label>
+              <label class="field"><span>Height %</span><input type="number" id="lyH" step="1" min="2"></label>
+            </div>
+            <p class="foot">Position and size as a percentage of the drawing area. The dashed box on the plate shows this layer's frame.</p>
+          </div>
         </section>
         <section class="group">
           <h2>Finishing</h2>

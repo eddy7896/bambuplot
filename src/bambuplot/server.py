@@ -26,6 +26,10 @@ from . import mask as masking
 from .image import Prep, load_gray
 from .layout import PAPER_LABELS, PAPER_SIZES, PRINTERS, Layout
 from .paths import stats
+from .gcode import compile_groups
+from .layers import PENS, Layer, frame_size, group_by_pen, pen_label, place_lines
+from .layout import Area
+from .paths import order_paths
 from .pipeline import Plan, make_plan, plan_to_gcode, touch_in_area
 from .package import TemplateError
 from .safety import GcodeSafetyError
@@ -65,6 +69,14 @@ class PlanRequest(BaseModel):
     image_id: str | None = None
     seed: int = 0
     extras: extras_mod.Extras = Field(default_factory=extras_mod.Extras)
+    layers: list[Layer] = Field(default_factory=list)  # empty = one layer from the fields above
+
+
+@dataclass
+class Composite:
+    layers: list  # (layer id, pen, lines) in area coordinates, in drawing order
+    groups: list  # (pen, lines): what gets plotted, one group per pen
+    stats: dict
 
 
 def _remember(store: OrderedDict, key: str, value, limit: int):
@@ -122,6 +134,52 @@ def _plan(req: PlanRequest) -> Plan:
     return Plan(lines=plan.lines, stats=stats(plan.lines, lay, touch_in_area(lay)))
 
 
+def _layer_lines(req: PlanRequest, layer: Layer) -> list:
+    """One layer's lines in drawing-area coordinates."""
+    a = req.layout.area
+    fw, fh = frame_size(layer.place, a.w, a.h)
+    lay = req.layout.model_copy(deep=True)
+    lay.area = Area(x=a.x, y=a.y, w=fw, h=fh)  # the effect fills the layer's own frame
+    sub = PlanRequest(layout=lay, effect=layer.effect, params=layer.params, prep=layer.prep,
+                      image_id=layer.image_id, seed=req.seed)
+    return place_lines(_plan(sub).lines, layer.place, a.w, a.h)
+
+
+def _compose(req: PlanRequest) -> Composite:
+    """Every visible layer, plus the border and signature, grouped by pen."""
+    lay, a = req.layout, req.layout.area
+    layers = req.layers or [Layer(id="l1", effect=req.effect, params=req.params, prep=req.prep, image_id=req.image_id)]
+    sig = extras_mod.load() if req.extras.signature else None
+    per = []
+    for layer in layers:
+        if not layer.visible:
+            continue
+        lines = extras_mod.clear_behind(_layer_lines(req, layer), a.w, a.h, req.extras, sig, lay.pen.width_mm)
+        per.append((layer.id, layer.pen, lines))
+    finish = extras_mod.finishing_lines(a.w, a.h, req.extras, sig)
+    if finish:  # border and signature go with the first visible layer's pen
+        per.append(("finishing", per[0][1] if per else 1, finish))
+    start = touch_in_area(lay)
+    groups = [(pen, order_paths(lines, start)) for pen, lines in group_by_pen([(p, l) for _, p, l in per])]
+    flat = [l for _, ls in groups for l in ls]
+    st = stats(flat, lay, start)
+    st["pens"] = len(groups)
+    st["pen_changes"] = max(0, len(groups) - 1)
+    return Composite(layers=per, groups=groups, stats=st)
+
+
+def _job_gcode(req: PlanRequest, title: str) -> str:
+    comp = _compose(req)
+    if not comp.groups:
+        raise HTTPException(422, "Nothing to draw: every layer is hidden or empty.")
+    groups = [(pen_label(pen), [req.layout.area_to_pen(l) for l in lines]) for pen, lines in comp.groups]
+    return compile_groups(req.layout, groups, title)
+
+
+def _rounded(lines):
+    return [[[round(float(x), 2), round(float(y), 2)] for x, y in l] for l in lines]
+
+
 def _refuse(err: Exception):
     raise HTTPException(422, {"message": str(err).split("\n", 1)[0], "problems": getattr(err, "problems", [])})
 
@@ -133,7 +191,7 @@ def index():
 
 @app.get("/api/version")
 def version():
-    return {"version": __version__, "features": ["rotation", "printer", "vector", "selection", "ai", "projects"]}
+    return {"version": __version__, "features": ["rotation", "printer", "vector", "selection", "ai", "projects", "layers"]}
 
 
 @app.get("/api/effects")
@@ -148,6 +206,7 @@ def defaults():
     return {"layout": layout.model_dump(), "prep": Prep().model_dump(), "machine": m.model_dump(),
             "extras": extras_mod.Extras().model_dump(),
             "printers": [{"key": k, "label": v[0], "w": v[1], "h": v[2]} for k, v in PRINTERS.items()],
+            "pens": [{"pen": n, "label": lab, "colour": col, "color": hx} for n, (lab, col, hx) in PENS.items()],
             "paper_sizes": [{"key": k, "label": PAPER_LABELS[k], "w": w, "h": h} for k, (w, h) in PAPER_SIZES.items()],
             "bed": [180, 180]}
 
@@ -275,19 +334,27 @@ def edit_mask(image_id: str, body: MaskOp):
 
 @app.post("/api/plan")
 def plan(req: PlanRequest):
-    p = _plan(req)
+    comp = _compose(req)
     return {
-        "lines": [[[round(float(x), 2), round(float(y), 2)] for x, y in l] for l in p.lines],
-        "stats": p.stats,
+        "lines": _rounded([l for _, ls in comp.groups for l in ls]),
+        "layers": [{"id": lid, "pen": pen, "color": PENS.get(pen, PENS[1])[2], "lines": _rounded(lines)}
+                   for lid, pen, lines in comp.layers],
+        "groups": [{"pen": pen, "label": pen_label(pen), "color": PENS.get(pen, PENS[1])[2], "lines": _rounded(lines)}
+                   for pen, lines in comp.groups],
+        "stats": comp.stats,
         "checks": [asdict(c) for c in req.layout.checks()],
     }
 
 
+@app.get("/api/pens")
+def pens():
+    return [{"pen": n, "label": label, "colour": colour, "color": hexcol} for n, (label, colour, hexcol) in PENS.items()]
+
+
 @app.post("/api/gcode", response_class=PlainTextResponse)
 def gcode(req: PlanRequest):
-    p = _plan(req)
     try:
-        text = plan_to_gcode(req.layout, p, title=req.effect)
+        text = _job_gcode(req, title=req.effect if not req.layers else f"{len(req.layers)} layers")
     except (UnsafeLayout, GcodeSafetyError) as err:
         _refuse(err)
     return PlainTextResponse(text, headers={"Content-Disposition": f'attachment; filename="bambuplot-{req.effect}.gcode"'})
@@ -377,7 +444,7 @@ def _job_text(req: SendRequest) -> tuple[str, str]:
         elif req.kind == "align":
             text, stem = alignment_test(lay), "bambuplot-alignment"
         else:
-            text, stem = plan_to_gcode(lay, _plan(req), title=req.effect), f"bambuplot-{req.effect}"
+            text, stem = _job_gcode(req, title=req.effect), f"bambuplot-{req.effect}"
     except (UnsafeLayout, GcodeSafetyError, ValueError) as err:
         _refuse(err)
     return text, stem
@@ -431,6 +498,8 @@ class ProjectState(BaseModel):
     prep: Prep = Field(default_factory=Prep)
     aiModel: str | None = None
     extras: extras_mod.Extras = Field(default_factory=extras_mod.Extras)
+    layers: list[Layer] = Field(default_factory=list)
+    active: int = 0  # the layer the inspector edits
 
 
 class ProjectSave(BaseModel):
@@ -462,17 +531,21 @@ def new_project(body: ProjectNew):
 def open_project(pid: str):
     try:
         p = proj.load(pid)
-        src = proj.source(pid)
-        image = None
-        if src is not None:
-            data, info = src
-            try:
-                image = _ingest(data, info.get("name", ""), saved_mask=proj.mask(pid))
-            except HTTPException as err:  # a source that no longer loads shouldn't lock the project
-                p["warning"] = f"The saved picture couldn't be opened ({err.detail}). Choose it again."
-            else:
-                image["name"] = info.get("name", "")
-        return {**p, "image": image}
+        images, warnings = {}, []
+        for iid, info in proj.list_sources(pid).items():
+            got = proj.source_bytes(pid, iid)
+            if got is None:
+                continue
+            try:  # a picture that no longer loads shouldn't lock the project
+                image = _ingest(got[0], info.get("name", ""), saved_mask=proj.source_mask(pid, iid))
+            except HTTPException as err:
+                warnings.append(f"“{info.get('name', 'A picture')}” couldn't be opened ({err.detail}). Choose it again.")
+                continue
+            image["name"] = info.get("name", "")
+            images[iid] = image
+        if warnings:
+            p["warning"] = " ".join(warnings)
+        return {**p, "images": images, "image": next(iter(images.values()), None)}
     except proj.ProjectError as err:
         _project_error(err)
 
@@ -480,23 +553,30 @@ def open_project(pid: str):
 @app.put("/api/projects/{pid}")
 def save_project(pid: str, body: ProjectSave):
     try:
-        if body.image_id is None:
-            proj.set_source(pid, None)
-        elif body.image_id in _images:
-            src = _images[body.image_id]
+        st = body.state
+        refs = [l.image_id for l in st.layers if l.image_id] if st.layers else ([body.image_id] if body.image_id else [])
+        items = {}
+        for iid in refs:
+            src = _images.get(iid)
+            if src is None:
+                continue
             kind = "svg" if isinstance(src, SvgSource) else "raster"
-            proj.set_source(pid, src.data, src.name, kind)
-            if isinstance(src, RasterSource):
-                proj.set_mask(pid, src.state.mask)
-        state = body.state.model_dump()
-        summary = proj.save_state(pid, state, body.name)
+            mask = src.state.mask if isinstance(src, RasterSource) else None
+            items[iid] = (src.data, src.name, kind, mask)
+        proj.set_sources(pid, items, set(refs))
+        summary = proj.save_state(pid, st.model_dump(), body.name)
         try:  # the dashboard thumbnail is a small drawing of the current plot
-            req = PlanRequest(layout=body.state.layout, effect=body.state.effect,
-                              params=body.state.params.get(body.state.effect, {}), prep=body.state.prep,
+            # Saved layers keep settings for every effect they've used; the plan needs this effect's.
+            layers = [l.model_copy(update={
+                "image_id": l.image_id if l.image_id in _images else None,
+                "params": l.params.get(l.effect, {}) if isinstance(l.params.get(l.effect), dict) else l.params,
+            }) for l in st.layers]
+            req = PlanRequest(layout=st.layout, effect=st.effect, params=st.params.get(st.effect, {}), prep=st.prep,
                               image_id=body.image_id if body.image_id in _images else None,
-                              extras=body.state.extras)
-            plan = _plan(req)
-            proj.render_thumb(pid, plan.lines, req.layout.area.w, req.layout.area.h, req.layout.pen.width_mm)
+                              extras=st.extras, layers=layers)
+            comp = _compose(req)
+            flat = [l for _, ls in comp.groups for l in ls]
+            proj.render_thumb(pid, flat, st.layout.area.w, st.layout.area.h, st.layout.pen.width_mm)
             summary["has_thumb"] = True
         except HTTPException:
             pass
@@ -541,20 +621,31 @@ def project_thumb(pid: str):
     return FileResponse(path, media_type="image/png", headers={"Cache-Control": "no-cache"})
 
 
-@app.get("/api/projects/{pid}/source")
-def project_source(pid: str):
+@app.get("/api/projects/{pid}/sources/{iid}")
+def project_source_file(pid: str, iid: str):
     try:
-        src = proj.source(pid)
+        got = proj.source_bytes(pid, iid)
     except proj.ProjectError as err:
         _project_error(err)
-    if src is None:
-        raise HTTPException(404, "This project has no picture.")
-    data, info = src
-    kind = info.get("kind")
-    ext = info.get("name", "").rsplit(".", 1)[-1].lower()
-    mime = "image/svg+xml" if kind == "svg" else {"jpg": "image/jpeg", "jpeg": "image/jpeg",
-                                                  "webp": "image/webp"}.get(ext, "image/png")
+    if got is None:
+        raise HTTPException(404, "That picture isn't in this project.")
+    data, info = got
+    ext = info.get("ext", "png")
+    mime = "image/svg+xml" if info.get("kind") == "svg" else {"jpg": "image/jpeg", "jpeg": "image/jpeg",
+                                                             "webp": "image/webp"}.get(ext, "image/png")
     return Response(data, media_type=mime)
+
+
+@app.get("/api/projects/{pid}/source")
+def project_source(pid: str):
+    """The project's first picture (kept for older pages; layers use /sources/{image id})."""
+    try:
+        first = next(iter(proj.list_sources(pid)), None)
+    except proj.ProjectError as err:
+        _project_error(err)
+    if first is None:
+        raise HTTPException(404, "This project has no picture.")
+    return project_source_file(pid, first)
 
 
 class AlignmentBody(BaseModel):

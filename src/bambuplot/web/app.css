@@ -274,7 +274,7 @@ dialog::backdrop{background:rgba(0,0,0,.25)}
 .area.sel{stroke-width:.9}
 .area.bad{stroke:var(--bad)}
 .handle{fill:var(--paper);stroke:var(--area);stroke-width:.6}
-#ink{fill:none;stroke:var(--ink-line);stroke-linecap:round;stroke-linejoin:round}
+.inkpath{fill:none;stroke-linecap:round;stroke-linejoin:round}
 #travel{fill:none;stroke:var(--travel);stroke-width:.25;stroke-dasharray:.8 .8;opacity:.85}
 #inkg{pointer-events:none}
 #inkg.stale{opacity:.45}
@@ -428,3 +428,22 @@ dialog::backdrop{background:rgba(0,0,0,.25)}
 .summary dt{color:var(--label2)}
 .summary dd{margin:0;font-variant-numeric:tabular-nums}
 @media (max-width:640px){.wiz-cols,.offsetbox{grid-template-columns:1fr}.choices{grid-template-columns:1fr}.offdiag{display:none}}
+
+/* layers */
+.layers{margin:10px 12px 2px;padding:8px;border-radius:10px;background:var(--fill)}
+.layers-head{display:flex;align-items:center;justify-content:space-between;padding:0 2px 6px}
+.layers-head h2{font-size:11px;font-weight:600;color:var(--label2)}
+.iconbtn.add{width:22px;height:22px;background:var(--control);box-shadow:var(--shadow);color:var(--label)}
+.layerlist{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:2px;max-height:140px;overflow-y:auto}
+.layerlist li{display:grid;grid-template-columns:22px 12px minmax(0,1fr) 22px;align-items:center;gap:6px;height:30px;padding:0 4px;border-radius:6px;cursor:default}
+.layerlist li:hover{background:var(--fill)}
+.layerlist li[aria-selected="true"]{background:var(--accent);color:var(--on-accent)}
+.layerlist li[aria-selected="true"] .sub{color:color-mix(in srgb,var(--on-accent) 75%,transparent)}
+.layerlist .eye,.layerlist .more{width:22px;height:22px;border:0;background:none;color:inherit;border-radius:5px;padding:0;display:flex;align-items:center;justify-content:center;opacity:.8}
+.layerlist .eye svg{width:15px;height:15px;fill:none;stroke:currentColor;stroke-width:1.5;stroke-linecap:round}
+.layerlist li.hidden .txt{opacity:.45}
+.layerlist .dot{width:10px;height:10px;border-radius:50%;box-shadow:0 0 0 1.5px rgba(255,255,255,.7)}
+.layerlist .txt{min-width:0;line-height:1.15}
+.layerlist .txt b{display:block;font-size:12px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.layerlist .sub{display:block;font-size:10.5px;color:var(--label2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#layerframe{fill:none;stroke:var(--accent);stroke-width:.5;stroke-dasharray:2 1.2;pointer-events:none}

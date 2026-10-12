@@ -81,6 +81,22 @@ The Artwork tab accepts PNG, JPG and SVG files.
 | Centerline trace | Sketches, line art, handwriting | One stroke down the middle of each drawn line, instead of two outlines. |
 | Contour lines | Photos, portraits | Lines of equal brightness, like a topographic map. |
 
+### Layers: stack effects and pictures
+
+The **Layers** panel at the top of the inspector holds a project's layers. Each layer has its own picture or SVG (or the sample), effect and settings, tone, crop and selection, and pen. The Picture and Effect tabs edit the selected layer.
+
+- **＋ Add:**
+  - **Another effect on this picture:** effect stacking, e.g. Flow lines for shading plus Centerline trace for outlines.
+  - **New picture or SVG…**
+  - **Sample picture**
+- **Layer list:** the eye hides a layer from the preview and the plot. **⋯** has Duplicate, Move Up/Down and Delete. The top of the list is drawn last.
+- **Effect → Layer:**
+  - **Name** and **Pen** (Pen 1–6, each previewed in its own colour).
+  - **Tones from / to:** e.g. 45–100% draws only the shadows.
+  - **Fill the drawing area** on, or off to set the layer's frame: left/front position, width and height as a percentage of the area, and turn. A dashed box on the plate shows the frame.
+
+**Several pens:** strokes are grouped by pen. Between pens, the job returns to the touch-off point and pauses ("swap to Pen 2 (blue)") so you can change the pen and touch it off, just like Pause 1. The border and signature use the first layer's pen. Each picture is stored once in the project, and projects from earlier versions open as a single layer.
+
 ### Border and signature
 
 These are in **Effect → Finishing** and work with every effect, including SVG files.
@@ -317,6 +333,7 @@ Every file passes through `safety.validate` before it is written. It is an allow
 | `package.py` | Wraps G-code in a `.gcode.3mf` from a Bambu Studio template |
 | `printer.py` | LAN Only upload (FTPS), start/status (MQTT), Bambu Connect hand-off |
 | `extras.py` | Border and signature: storage, tracing from a photo, placement, clearing art behind it |
+| `layers.py` | Layer model, frames inside the area, pen slots and grouping |
 | `projects.py` | Projects on disk: state, source file, selection, thumbnail |
 | `server.py` / `web/` | FastAPI backend and the browser UI |
 

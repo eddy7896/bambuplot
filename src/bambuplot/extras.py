@@ -192,21 +192,32 @@ def border_lines(w: float, h: float, inset: float) -> Lines:
     return [np.array([[i, i], [w - i, i], [w - i, h - i], [i, h - i], [i, i]])]
 
 
+def clear_behind(lines: Lines, w: float, h: float, ex: Extras | None, signature: list[np.ndarray] | None,
+                 pen_width: float = 0.4) -> Lines:
+    """Remove artwork under the signature, if the signature is on and set to clear."""
+    if not (ex and ex.signature and signature and ex.sig_clear):
+        return lines
+    _, (sx0, sy0, sx1, sy1) = place_signature(signature, w, h, ex, ex.border_inset if ex.border else 0.0)
+    pad = 1.0 + pen_width
+    cut: Lines = []
+    for l in lines:
+        cut += _subtract_box(l, sx0 - pad, sy0 - pad, sx1 + pad, sy1 + pad)
+    return cut
+
+
+def finishing_lines(w: float, h: float, ex: Extras | None, signature: list[np.ndarray] | None) -> Lines:
+    """The signature and border strokes themselves."""
+    out: Lines = []
+    if ex and ex.signature and signature:
+        out += place_signature(signature, w, h, ex, ex.border_inset if ex.border else 0.0)[0]
+    if ex and ex.border:
+        out += border_lines(w, h, ex.border_inset)
+    return out
+
+
 def apply(lines: Lines, w: float, h: float, ex: Extras | None, signature: list[np.ndarray] | None,
           pen_width: float = 0.4) -> Lines:
     """Add the border and signature to an effect's lines (area coordinates)."""
     if ex is None or not (ex.border or (ex.signature and signature)):
         return lines
-    out = list(lines)
-    if ex.signature and signature:
-        sig, (sx0, sy0, sx1, sy1) = place_signature(signature, w, h, ex, ex.border_inset if ex.border else 0.0)
-        if ex.sig_clear:
-            pad = 1.0 + pen_width
-            cut: Lines = []
-            for l in out:
-                cut += _subtract_box(l, sx0 - pad, sy0 - pad, sx1 + pad, sy1 + pad)
-            out = cut
-        out += sig
-    if ex.border:
-        out += border_lines(w, h, ex.border_inset)
-    return out
+    return clear_behind(list(lines), w, h, ex, signature, pen_width) + finishing_lines(w, h, ex, signature)

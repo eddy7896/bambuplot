@@ -37,6 +37,8 @@ class Prep(BaseModel):
     invert: bool = False
     paper_white: float = Field(0.0, ge=0, le=0.5)  # darkness below this becomes pure white
     use_mask: bool = True  # apply the subject selection / background removal
+    band_lo: float = Field(0.0, ge=0, le=1)  # only tones with darkness in [band_lo, band_hi] get ink
+    band_hi: float = Field(1.0, ge=0, le=1)
     crop: list[float] | None = None  # (u0, v0, u1, v1) of the original picture, 0–1, before turning
     fit: Literal["fill", "fit"] = "fill"  # fill the area (trim edges) or fit inside it (blank margins)
 
@@ -196,6 +198,9 @@ def prepare(gray: np.ndarray | None, w: float, h: float, prep: Prep | None = Non
         data = 1.0 - data
     if prep.paper_white > 0:  # leave near-white areas blank instead of faint marks
         data = np.where(1.0 - data < prep.paper_white, 1.0, data)
+    if prep.band_lo > 0 or prep.band_hi < 1:  # tone band: e.g. only the shadows for this layer
+        dark = 1.0 - data
+        data = np.where((dark < prep.band_lo) | (dark > prep.band_hi), 1.0, data)
     if keep is not None:  # last, so invert or brightness can't put ink back on removed areas
         data = data * keep + (1 - keep)
     return Tone(data=data.astype(np.float32), w=w, h=h)

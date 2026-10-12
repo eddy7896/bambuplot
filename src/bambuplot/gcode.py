@@ -147,3 +147,52 @@ def compile_strokes(layout: Layout, strokes: list[Stroke], title: str = "", chec
 
 def compile_lines(layout: Layout, lines_pen: list[np.ndarray], title: str = "") -> str:
     return compile_strokes(layout, [Stroke(l) for l in lines_pen], title)
+
+
+def pen_change(w: _Writer, layout: Layout, label: str) -> None:
+    """Go back to the touch-off point and pause so the next pen can be fitted and touched off."""
+    z, f = layout.z, layout.feed
+    lx, ly, _, _ = layout.local_touch()
+    x, y = layout.area_to_pen([lx, ly])
+    w(f"; ===== pen change: {label} =====")
+    w(f"G1 Z{_z(z.trace)} F{f.z}", "lift the pen clear")
+    w(f"G1 {_xy(layout, x, y)} F{f.travel}", "back to the touch-off point")
+    w(f"G1 Z{_z(z.touch)} F{f.z_slow}", "touch-off height")
+    w("M400")
+    w("M400 U1", f"PAUSE: swap to {label}, lower its tip to the paper, tighten")
+    w(f"G1 Z{_z(z.up)} F{f.z}")
+
+
+def compile_groups(layout: Layout, groups: list[tuple[str, list[np.ndarray]]], title: str = "",
+                   check_layout: bool = True) -> str:
+    """Several pens in one job: (pen label, pen-coordinate lines) groups, with a pause between them."""
+    if check_layout:
+        bad = [f"{c.title}: {c.detail}" for c in layout.checks() if c.state == "bad"]
+        if bad:
+            raise UnsafeLayout(bad)
+    z, f = layout.z, layout.feed
+    w = _Writer()
+    pens = ", ".join(label for label, _ in groups)
+    start_sequence(w, layout, title + (f" · pens: {pens}" if len(groups) > 1 else ""))
+    for i, (label, lines) in enumerate(groups):
+        if i > 0:
+            pen_change(w, layout, label)
+        else:
+            w(f"; pen: {label}")
+        for pts in lines:
+            pts = np.asarray(pts, float)
+            if len(pts) == 0:
+                continue
+            w.move(f"G1 {_xy(layout, *pts[0])} F{f.travel}")
+            w(f"G1 Z{_z(z.down)} F{f.z}")
+            if len(pts) > 1:
+                w(f"G1 {_xy(layout, *pts[1])} F{f.draw}")
+                for x, y in pts[2:]:
+                    w.move(f"G1 {_xy(layout, x, y)}")
+            w(f"G1 Z{_z(z.up)} F{f.z}")
+    end_sequence(w, layout)
+    text = w.text()
+    problems = validate(text, min_z=z.down, bed_w=layout.bed.w, bed_h=layout.bed.h)
+    if problems:
+        raise GcodeSafetyError(problems)
+    return text

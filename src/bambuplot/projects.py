@@ -249,3 +249,105 @@ def render_thumb(pid: str, lines: list[np.ndarray], w: float, h: float, pen_mm: 
 def thumb_path(pid: str) -> Path | None:
     p = _dir(pid) / "thumb.png"
     return p if p.exists() else None
+
+
+# ------------------------------------------------------------------ several pictures (layers)
+# Each picture is stored as sources/<image id>.<ext>, its selection as sources/<image id>.mask.png.
+# Image ids come from the file's content, so the same picture always gets the same id.
+
+
+def image_id_for(data: bytes, kind: str) -> str:
+    digest = hashlib.sha1(data).hexdigest()[:16]
+    return f"svg-{digest}" if kind == "svg" else digest
+
+
+def _ext(name: str, kind: str) -> str:
+    ext = (name.rsplit(".", 1)[-1].lower() if "." in name else "") or ("svg" if kind == "svg" else "png")
+    return ext if ext in SOURCE_EXTS else ("svg" if kind == "svg" else "png")
+
+
+def list_sources(pid: str) -> dict:
+    """image id → info (name, kind, ext), including a single picture saved by an older version."""
+    d = _dir(pid)
+    meta = _meta(d)
+    out = dict(meta.get("sources") or {})
+    legacy = meta.get("source")
+    f = _source_file(d)
+    if legacy and f is not None:
+        iid = image_id_for(f.read_bytes(), legacy.get("kind", "raster"))
+        out.setdefault(iid, {"name": legacy.get("name", f.name), "kind": legacy.get("kind", "raster"),
+                             "ext": f.suffix.lstrip("."), "legacy": True})
+    return out
+
+
+def source_bytes(pid: str, iid: str) -> tuple[bytes, dict] | None:
+    d = _dir(pid)
+    info = list_sources(pid).get(iid)
+    if info is None:
+        return None
+    if info.get("legacy"):
+        f = _source_file(d)
+        return (f.read_bytes(), info) if f else None
+    f = d / "sources" / f"{iid}.{info['ext']}"
+    return (f.read_bytes(), info) if f.exists() else None
+
+
+def source_mask(pid: str, iid: str) -> np.ndarray | None:
+    d = _dir(pid)
+    info = list_sources(pid).get(iid) or {}
+    path = d / "mask.png" if info.get("legacy") else d / "sources" / f"{iid}.mask.png"
+    if not path.exists():
+        return None
+    m = cv2.imdecode(np.frombuffer(path.read_bytes(), np.uint8), cv2.IMREAD_GRAYSCALE)
+    return None if m is None else (m > 127).astype(np.uint8)
+
+
+def set_sources(pid: str, items: dict, referenced: set[str]) -> None:
+    """Store the pictures the layers use.
+
+    ``items``: image id → (bytes, name, kind, mask or None) for pictures loaded right now.
+    ``referenced``: every image id the layers point at; stored pictures still referenced are
+    kept even if they aren't loaded (e.g. after a restart), the rest are removed.
+    """
+    d = _dir(pid)
+    meta = _meta(d)
+    known = dict(meta.get("sources") or {})
+    sd = d / "sources"
+    sd.mkdir(exist_ok=True)
+    # Move an older single picture into the new layout first.
+    legacy = meta.get("source")
+    f = _source_file(d)
+    if legacy and f is not None:
+        data = f.read_bytes()
+        iid = image_id_for(data, legacy.get("kind", "raster"))
+        ext = _ext(legacy.get("name", ""), legacy.get("kind", "raster"))
+        (sd / f"{iid}.{ext}").write_bytes(data)
+        if (d / "mask.png").exists():
+            (d / "mask.png").replace(sd / f"{iid}.mask.png")
+        known[iid] = {"name": legacy.get("name", f.name), "kind": legacy.get("kind", "raster"), "ext": ext}
+        f.unlink()
+        meta["source"] = None
+    new = {}
+    for iid in referenced:
+        if iid in items:
+            data, name, kind, mask = items[iid]
+            ext = _ext(name, kind)
+            path = sd / f"{iid}.{ext}"
+            if not path.exists():
+                path.write_bytes(data)
+            new[iid] = {"name": clean_name(name, f"picture.{ext}"), "kind": kind, "ext": ext, "bytes": len(data)}
+            mpath = sd / f"{iid}.mask.png"
+            if mask is None:
+                mpath.unlink(missing_ok=True)
+            else:
+                ok, buf = cv2.imencode(".png", (mask > 0).astype(np.uint8) * 255)
+                if ok and (not mpath.exists() or mpath.read_bytes() != buf.tobytes()):
+                    mpath.write_bytes(buf.tobytes())
+        elif iid in known:
+            new[iid] = known[iid]
+    for iid, info in known.items():
+        if iid not in new:
+            (sd / f"{iid}.{info.get('ext', 'png')}").unlink(missing_ok=True)
+            (sd / f"{iid}.mask.png").unlink(missing_ok=True)
+    meta["sources"] = new
+    _write_json(d / "project.json", meta)
