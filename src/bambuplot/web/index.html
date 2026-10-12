@@ -148,6 +148,8 @@
         <section class="group">
           <h2>Source</h2>
           <div class="thumb" id="thumb"></div>
+          <div class="srow sw" style="margin-top:6px" title="Shows the picture faintly under the plot preview (⇧⌘P). It is never plotted."><label for="viewImg">Show picture under the plot</label><input type="checkbox" class="switch" id="viewImg" checked></div>
+          <div class="srow" id="viewImgOpRow"><label for="viewImgOp">Picture strength</label><input type="range" id="viewImgOp" min="5" max="80" step="1"><output id="viewImgOp.out"></output></div>
           <ul class="notes" id="srcNotes" hidden></ul>
           <div id="selBox" hidden>
             <div class="btnrow">
@@ -428,7 +430,7 @@
       <button class="iconbtn" type="button" id="travelBtn" aria-pressed="false" title="Show pen-up moves">
         <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M3 15 8 6l4 8 5-9" stroke-dasharray="2 2"/></svg>
       </button>
-      <button class="iconbtn" type="button" id="imgBtn" aria-pressed="true" title="Show the source picture under the plot">
+      <button class="iconbtn" type="button" id="imgBtn" aria-pressed="true" title="Show the picture under the plot (⇧⌘P)">
         <svg viewBox="0 0 20 20" aria-hidden="true"><rect x="3" y="4" width="14" height="12" rx="2"/><path d="m4 14 4-4 3 3 2-2 3 3"/></svg>
       </button>
       <button class="iconbtn" type="button" id="dimsBtn" aria-pressed="true" title="Show distances from the plate edges">

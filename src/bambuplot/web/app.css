@@ -278,7 +278,7 @@ dialog::backdrop{background:rgba(0,0,0,.25)}
 #travel{fill:none;stroke:var(--travel);stroke-width:.25;stroke-dasharray:.8 .8;opacity:.85}
 #inkg{pointer-events:none}
 #inkg.stale{opacity:.45}
-.src{opacity:.22;filter:grayscale(1);pointer-events:none}
+.src{opacity:var(--src-op,.22);filter:grayscale(1);pointer-events:none}
 .dim{fill:var(--area);font:600 3.6px var(--mono);pointer-events:none}
 .touch{stroke:var(--bad);stroke-width:.5;fill:none;pointer-events:none}
 .knobline{stroke:var(--accent);stroke-width:.4;stroke-dasharray:1 1;pointer-events:none}

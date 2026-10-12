@@ -393,9 +393,23 @@ $('aspect').onclick=()=>{
 };
 $('snap').onchange=e=>{snap=e.target.checked};
 $('progress').oninput=drawProgress;$('showTravel').onchange=drawProgress;$('showImg').onchange=placeInk;
-for(const [btn,box,fn] of [['travelBtn','showTravel',drawProgress],['imgBtn','showImg',placeInk]]){
-  $(btn).onclick=()=>{const c=$(box);c.checked=!c.checked;$(btn).setAttribute('aria-pressed',c.checked);fn()};
+$('travelBtn').onclick=()=>{const c=$('showTravel');c.checked=!c.checked;$('travelBtn').setAttribute('aria-pressed',c.checked);drawProgress()};
+
+/* The picture under the plot: on/off and how strong, remembered on this computer. */
+const VIEW=(()=>{try{return {img:true,op:22,...JSON.parse(localStorage.getItem('bambuplot.view')||'{}')}}catch(_){return {img:true,op:22}}})();
+function applyView(){
+  $('showImg').checked=VIEW.img;$('viewImg').checked=VIEW.img;$('imgBtn').setAttribute('aria-pressed',VIEW.img);
+  $('viewImgOp').value=VIEW.op;$('viewImgOp.out').textContent=`${VIEW.op}%`;$('viewImgOpRow').hidden=!VIEW.img||!job.image;
+  document.documentElement.style.setProperty('--src-op',VIEW.op/100);
+  if(typeof fillRange==='function')fillRange($('viewImgOp'));
+  try{localStorage.setItem('bambuplot.view',JSON.stringify(VIEW))}catch(_){}
+  if(L)placeInk();
 }
+function toggleBaseImage(){VIEW.img=!VIEW.img;applyView();setStatus(VIEW.img?'Picture shown under the plot.':'Picture hidden. The preview shows only the lines.')}
+$('imgBtn').onclick=toggleBaseImage;
+$('viewImg').addEventListener('input',()=>{VIEW.img=$('viewImg').checked;applyView()});
+$('viewImgOp').addEventListener('input',()=>{VIEW.op=+$('viewImgOp').value;applyView()});
+applyView();
 function selectTab(id){
   document.querySelectorAll('.tabs [role=tab]').forEach(x=>{const on=x.id===id;x.setAttribute('aria-selected',on);$(x.getAttribute('aria-controls')).hidden=!on});
 }
@@ -462,7 +476,8 @@ $('effect').onchange=e=>{job.effect=e.target.value;buildParams();renderLayers();
 function renderThumb(){
   const t=$('thumb'),n=$('srcNotes'),im=job.image;
   n.hidden=!(im?.warnings?.length);n.innerHTML=(im?.warnings||[]).map(w=>`<li>${esc(w)}</li>`).join('');
-  $('tbEdit').disabled=im?.kind!=='raster';if(currentProject)setDocState(`${dirty?'Edited':'Saved'} · ${docInfo()}`);
+  $('tbEdit').disabled=im?.kind!=='raster';
+  $('viewImg').closest('.srow').hidden=!im;$('viewImgOpRow').hidden=!im||!VIEW.img;if(currentProject)setDocState(`${dirty?'Edited':'Saved'} · ${docInfo()}`);
   if(!im){t.innerHTML='<label class="drop" for="file">Drop a PNG, JPG or SVG here, or click to choose.<br>The preview uses a sample sphere until then.</label>';$('srcimg').setAttribute('href','');}
   else{
     const info=im.kind==='svg'
@@ -1144,6 +1159,7 @@ document.addEventListener('keydown',e=>{
   if(!(e.metaKey||e.ctrlKey)||$('editor').open||$('sendSheet').open||$('sigSheet').open||$('newSheet').open||!$('dashboard').hidden)return;
   const k=e.key.toLowerCase();
   if(k==='o'){e.preventDefault();$('file').click()}
+  else if(k==='p'&&e.shiftKey){e.preventDefault();toggleBaseImage()}
   else if(k==='s'){e.preventDefault();saveNow()}
   else if(k==='e'&&e.shiftKey){e.preventDefault();if(!$('dlG').disabled)$('dlG').click()}
   else if(k==='e'&&!e.shiftKey){e.preventDefault();if(!$('tbEdit').disabled)openEditor('crop')}

@@ -57,7 +57,10 @@ You can also drop a file anywhere on the window to open it.
 | ⌘S | Save the project now (it also saves itself) |
 | ⇧⌘E | Export G-code |
 | ⌘↩ | Send to printer |
+| ⇧⌘P | Show or hide the picture under the plot |
 | ⌘1–⌘4 | Picture / Effect / Bed / Printer tab |
+
+The picture you're plotting shows faintly under the preview lines. Turn it off with **Picture → Show picture under the plot**, the picture button in the status bar, or ⇧⌘P, and set how strong it looks with **Picture strength**. Both are remembered, and the picture is never plotted.
 
 On narrow windows, the inspector moves below the plate. It follows the system's light and dark appearance.
 
