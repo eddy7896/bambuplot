@@ -29,7 +29,7 @@ from .paths import stats
 from . import thumbs as thumbs_mod
 from .gcode import SCREEN_MESSAGES, Screen, compile_groups, job_seconds
 from .image import prepare
-from .layers import PENS, Layer, frame_size, group_by_pen, pen_label, place_lines
+from .layers import PENS, Layer, frame_size, group_in_order, pen_label, place_lines
 from .layout import Area
 from .paths import order_paths
 from .pipeline import Plan, make_plan, plan_to_gcode, touch_in_area
@@ -160,13 +160,26 @@ def _compose(req: PlanRequest) -> Composite:
         lines = extras_mod.clear_behind(_layer_lines(req, layer), a.w, a.h, req.extras, sig, lay.pen.width_mm)
         per.append((layer.id, layer.pen, lines))
     finish = extras_mod.finishing_lines(a.w, a.h, req.extras, sig)
-    if finish:  # border and signature go with the first visible layer's pen
-        per.append(("finishing", per[0][1] if per else 1, finish))
+    if finish:  # border and signature: after the first pen's layers, with that pen (no extra pen change)
+        drawn = [i for i, (_, _, l) in enumerate(per) if l]
+        at, pen = len(per), 1
+        if drawn:
+            pen = per[drawn[0]][1]
+            at = next((i for i in drawn if per[i][1] != pen), len(per))
+        per.insert(at, ("finishing", pen, finish))
+    # Layers plot in order, each one finished before the next; travel is optimized within a layer only.
     start = touch_in_area(lay)
-    groups = [(pen, order_paths(lines, start)) for pen, lines in group_by_pen([(p, l) for _, p, l in per])]
+    ordered = []
+    pos = start
+    for _, pen, lines in per:
+        lines = order_paths(lines, pos) if lines else []
+        if lines:
+            pos = tuple(lines[-1][-1])
+        ordered.append((pen, lines))
+    groups = group_in_order(ordered)
     flat = [l for _, ls in groups for l in ls]
     st = stats(flat, lay, start)
-    st["pens"] = len(groups)
+    st["pens"] = len({pen for pen, _ in groups})
     st["pen_changes"] = max(0, len(groups) - 1)
     return Composite(layers=per, groups=groups, stats=st)
 
@@ -215,7 +228,7 @@ def _project_file(req: PlanRequest, text: str, title: str, comp: Composite | Non
         title=title, printer_model_id=(lay.bed.model_id or ("N1",))[0], nozzle=0.4, bed_w=lay.bed.w, bed_h=lay.bed.h,
         seconds=job_seconds(lay, [(c, ls) for c, ls in groups_pen], _screen()) if comp else 120.0,
         pauses=text.count("M400 U1"), bbox=(float(x0), float(y0), float(x1), float(y1)),
-        colors=[c for c, _ in groups_area] or [PENS[1][2]])
+        colors=list(dict.fromkeys(c for c, _ in groups_area)) or [PENS[1][2]])
     picture = _preview_picture(req) if comp else None
     thumbs = thumbs_mod.thumbnails(groups_area, groups_pen, lay, picture, cfg.thumbnail)
     base = package.template_settings(tpl.read_bytes()) if tpl.exists() else None

@@ -98,7 +98,9 @@ The **Layers** panel at the top of the inspector holds a project's layers. Each 
   - **Tones from / to:** e.g. 45–100% draws only the shadows.
   - **Fill the drawing area** on, or off to set the layer's frame: left/front position, width and height as a percentage of the area, and turn. A dashed box on the plate shows the frame.
 
-**Several pens:** strokes are grouped by pen. Between pens, the job returns to the touch-off point and pauses ("swap to Pen 2 (blue)") so you can change the pen and touch it off, just like Pause 1. The border and signature use the first layer's pen. Each picture is stored once in the project, and projects from earlier versions open as a single layer.
+**Plot order:** layers plot from the bottom of the Layers panel up, in the order you added them. Each layer is finished before the next one starts, and pen travel is only shortened within a layer. Neighbouring layers with the same pen run back to back with no pause, so order your layers by pen to keep pen changes down (pens 1, 2, 1 means two changes).
+
+**Several pens:** between pens, the job returns to the touch-off point and pauses ("swap to Pen 2 (blue)") so you can change the pen and touch it off, just like Pause 1. The border and signature are drawn with the first layer's pen, after the last of that pen's opening run of layers. Each picture is stored once in the project, and projects from earlier versions open as a single layer.
 
 ### Border and signature
 

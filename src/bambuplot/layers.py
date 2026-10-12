@@ -2,8 +2,9 @@
 
 Each layer is drawn in its own frame inside the drawing area (``Place``, as
 fractions of the area, optionally rotated) and with its own pen. Strokes are
-grouped by pen for plotting, so the job pauses for a pen change only when
-the pen actually changes.
+plotted in layer order: each layer is finished before the next one starts.
+Neighbouring layers that use the same pen share one pen group, so the job
+pauses for a pen change only when the pen actually changes.
 """
 
 from __future__ import annotations
@@ -83,15 +84,18 @@ def place_lines(lines: Lines, place: Place, area_w: float, area_h: float) -> Lin
     return out
 
 
-def group_by_pen(per_layer: list[tuple[int, Lines]]) -> list[tuple[int, Lines]]:
-    """Merge layers that share a pen, keeping the order in which pens first appear."""
-    order: list[int] = []
-    groups: dict[int, Lines] = {}
+def group_in_order(per_layer: list[tuple[int, Lines]]) -> list[tuple[int, Lines]]:
+    """Keep layer order; merge only neighbouring layers that use the same pen.
+
+    Pens 1, 2, 1 give three groups (two pen changes), so layer 3 is never drawn before layer 2.
+    """
+    groups: list[tuple[int, Lines]] = []
     for pen, lines in per_layer:
         if not lines:
             continue
-        if pen not in groups:
-            order.append(pen)
-            groups[pen] = []
-        groups[pen] += lines
-    return [(pen, groups[pen]) for pen in order]
+        if groups and groups[-1][0] == pen:
+            groups[-1][1].extend(lines)
+        else:
+            groups.append((pen, list(lines)))
+    return groups
+

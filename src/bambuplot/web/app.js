@@ -1005,12 +1005,14 @@ function layerSub(l){return `${l.image?l.image.name:'Sample picture'} · ${penIn
 const EYE_ON='<svg viewBox="0 0 20 20"><path d="M2 10s3-5.5 8-5.5S18 10 18 10s-3 5.5-8 5.5S2 10 2 10Z"/><circle cx="10" cy="10" r="2.4"/></svg>';
 const EYE_OFF='<svg viewBox="0 0 20 20"><path d="M3 3l14 14M7.5 5.2A8 8 0 0 1 10 4.5c5 0 8 5.5 8 5.5a14 14 0 0 1-2.4 3M12.5 14.8a8 8 0 0 1-2.5.7c-5 0-8-5.5-8-5.5a14 14 0 0 1 2.4-3"/></svg>';
 function renderLayers(){
-  // Top of the list = drawn last, like layers in other apps.
+  // Top of the list = drawn last, like layers in other apps. Each layer is plotted in full before the next.
+  const order=new Map();let n=0;LAYERS.list.forEach((l,i)=>{if(l.visible)order.set(i,++n)});
+  const step=i=>order.has(i)&&n>1?`${order.get(i)}. `:'';
   $('layerList').innerHTML=LAYERS.list.map((l,i)=>({l,i})).reverse().map(({l,i})=>`
     <li role="option" data-i="${i}" aria-selected="${i===LAYERS.active}" class="${l.visible?'':'hidden'}">
       <button class="eye" type="button" data-eye="${i}" aria-label="${l.visible?'Hide':'Show'} layer" title="${l.visible?'Hide':'Show'} layer">${l.visible?EYE_ON:EYE_OFF}</button>
       <span class="dot" style="background:${penInfo(l.pen).color}" title="${esc(penInfo(l.pen).label)}"></span>
-      <span class="txt"><b>${esc(layerTitle(l))}</b><span class="sub">${esc(layerSub(l))}</span></span>
+      <span class="txt"><b>${esc(layerTitle(l))}</b><span class="sub" title="${order.has(i)?`Plotted ${order.get(i)} of ${n}`:'Hidden: not plotted'}">${step(i)}${esc(layerSub(l))}</span></span>
       <button class="more" type="button" data-more="${i}" aria-label="Layer actions" aria-haspopup="menu">⋯</button>
     </li>`).join('');
   syncLayerSettings();

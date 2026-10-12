@@ -9,7 +9,7 @@ from PIL import Image
 from bambuplot import printer
 from bambuplot.gcode import compile_groups
 from bambuplot.image import Prep, prepare
-from bambuplot.layers import Place, group_by_pen, place_lines
+from bambuplot.layers import Place, group_in_order, place_lines
 from bambuplot.layout import Layout
 from bambuplot.server import app
 
@@ -46,10 +46,38 @@ def test_rotated_frame_is_clipped_to_the_area():
     assert pts.min() >= -1e-9 and pts[:, 0].max() <= 100 + 1e-9 and pts[:, 1].max() <= 50 + 1e-9
 
 
-def test_group_by_pen_keeps_first_appearance_order():
-    a, b, c = (np.zeros((2, 2)),) * 3
-    groups = group_by_pen([(2, [a]), (1, [b]), (2, [c]), (3, [])])
-    assert [p for p, _ in groups] == [2, 1] and len(groups[0][1]) == 2
+def test_group_in_order_keeps_layer_order():
+    a, b, c, d = (np.zeros((2, 2)),) * 4
+    groups = group_in_order([(1, [a]), (1, [b]), (2, [c]), (3, []), (1, [d])])
+    assert [p for p, _ in groups] == [1, 2, 1] and len(groups[0][1]) == 2
+
+
+def test_layers_plot_one_after_another(home):
+    """Same pen, two layers side by side: every stroke of the first is drawn before the second starts."""
+    client = TestClient(app)
+    lay = Layout().model_dump()
+    w = lay["area"]["w"]
+    layers = [
+        {"id": "a", "effect": "waves", "pen": 1, "place": {"x": 0.5, "w": 0.5}},
+        {"id": "b", "effect": "spiral", "pen": 1, "place": {"x": 0.0, "w": 0.5}},
+    ]
+    d = client.post("/api/plan", json={"layout": lay, "layers": layers}).json()
+    assert d["stats"]["pen_changes"] == 0
+    xs = [np.array(l)[:, 0].mean() for l in d["lines"]]
+    sides = [x > w / 2 for x in xs]
+    first_b = sides.index(False)
+    assert all(sides[:first_b]) and not any(sides[first_b:])  # all of a (right half), then all of b
+
+
+def test_returning_to_a_pen_keeps_layer_order(home):
+    client = TestClient(app)
+    lay = Layout().model_dump()
+    layers = [{"id": "a", "effect": "spiral", "pen": 1},
+              {"id": "b", "effect": "waves", "pen": 2},
+              {"id": "c", "effect": "halftone", "pen": 1}]
+    d = client.post("/api/plan", json={"layout": lay, "layers": layers}).json()
+    assert [g["pen"] for g in d["groups"]] == [1, 2, 1]
+    assert d["stats"]["pen_changes"] == 2 and d["stats"]["pens"] == 2
 
 
 def test_tone_band_keeps_only_the_chosen_tones():
