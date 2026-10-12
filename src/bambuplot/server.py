@@ -26,11 +26,14 @@ from . import mask as masking
 from .image import Prep, load_gray
 from .layout import PAPER_LABELS, PAPER_SIZES, PRINTERS, Layout
 from .paths import stats
-from .gcode import compile_groups
+from . import thumbs as thumbs_mod
+from .gcode import SCREEN_MESSAGES, Screen, compile_groups, job_seconds
+from .image import prepare
 from .layers import PENS, Layer, frame_size, group_by_pen, pen_label, place_lines
 from .layout import Area
 from .paths import order_paths
 from .pipeline import Plan, make_plan, plan_to_gcode, touch_in_area
+from . import package
 from .package import TemplateError
 from .safety import GcodeSafetyError
 from .svgin import SvgArt, SvgError, load_svg
@@ -168,12 +171,55 @@ def _compose(req: PlanRequest) -> Composite:
     return Composite(layers=per, groups=groups, stats=st)
 
 
-def _job_gcode(req: PlanRequest, title: str) -> str:
-    comp = _compose(req)
+def _screen() -> Screen:
+    c = printer.load_config()
+    return Screen(progress=c.screen_progress, status=c.screen_status, claim_pause=c.claim_pause, claim_pen=c.claim_pen)
+
+
+def _job_gcode(req: PlanRequest, title: str, comp: Composite | None = None) -> str:
+    comp = comp or _compose(req)
     if not comp.groups:
         raise HTTPException(422, "Nothing to draw: every layer is hidden or empty.")
     groups = [(pen_label(pen), [req.layout.area_to_pen(l) for l in lines]) for pen, lines in comp.groups]
-    return compile_groups(req.layout, groups, title)
+    return compile_groups(req.layout, groups, title, screen=_screen())
+
+
+def _preview_picture(req: PlanRequest):
+    """The first visible full-area picture layer's tone (what gets plotted), for thumbnails."""
+    layers = req.layers or [Layer(effect=req.effect, prep=req.prep, image_id=req.image_id)]
+    a = req.layout.area
+    for layer in layers:
+        src = _images.get(layer.image_id) if layer.image_id else None
+        if layer.visible and isinstance(src, RasterSource) and layer.place.is_full:
+            mask = masking.full_mask(src.state, src.gray.shape) if src.state.mask is not None else None
+            return prepare(src.gray, a.w, a.h, layer.prep.model_copy(update={"px_per_mm": 3.0}), mask=mask).data
+    return None
+
+
+def _project_file(req: PlanRequest, text: str, title: str, comp: Composite | None) -> tuple[bytes, str] | None:
+    """The .gcode.3mf for this job: built in (with thumbnails and timing), or from the user's template."""
+    cfg = printer.load_config()
+    tpl = printer.template_path()
+    if cfg.project_file == "template":
+        if not tpl.exists():
+            raise HTTPException(422, "Add a project template in the Printer tab, or switch to the built-in project file.")
+        data = tpl.read_bytes()
+        return package.package(text, data), package.inspect_template(data)["param"]
+    lay = req.layout
+    groups_area = [(PENS.get(p, PENS[1])[2], lines) for p, lines in (comp.groups if comp else [])]
+    groups_pen = [(c, [lay.area_to_pen(l) for l in lines]) for c, lines in groups_area]
+    pts = [lay.to_nozzle(np.vstack(ls)) for _, ls in groups_pen if ls] or [lay.to_nozzle(lay.area.poly())]
+    allp = np.vstack(pts)
+    (x0, y0), (x1, y1) = allp.min(axis=0), allp.max(axis=0)
+    info = package.ProjectInfo(
+        title=title, printer_model_id=(lay.bed.model_id or ("N1",))[0], nozzle=0.4, bed_w=lay.bed.w, bed_h=lay.bed.h,
+        seconds=job_seconds(lay, [(c, ls) for c, ls in groups_pen], _screen()) if comp else 120.0,
+        pauses=text.count("M400 U1"), bbox=(float(x0), float(y0), float(x1), float(y1)),
+        colors=[c for c, _ in groups_area] or [PENS[1][2]])
+    picture = _preview_picture(req) if comp else None
+    thumbs = thumbs_mod.thumbnails(groups_area, groups_pen, lay, picture, cfg.thumbnail)
+    base = package.template_settings(tpl.read_bytes()) if tpl.exists() else None
+    return package.build_project(text, info, thumbs, base), "Metadata/plate_1.gcode"
 
 
 def _rounded(lines):
@@ -207,6 +253,7 @@ def defaults():
             "extras": extras_mod.Extras().model_dump(),
             "printers": [{"key": k, "label": v[0], "w": v[1], "h": v[2]} for k, v in PRINTERS.items()],
             "pens": [{"pen": n, "label": lab, "colour": col, "color": hx} for n, (lab, col, hx) in PENS.items()],
+            "screen_messages": [{"code": k, "label": v} for k, v in SCREEN_MESSAGES.items()],
             "paper_sizes": [{"key": k, "label": PAPER_LABELS[k], "w": w, "h": h} for k, (w, h) in PAPER_SIZES.items()],
             "bed": [180, 180]}
 
@@ -379,11 +426,18 @@ class PrinterSettings(BaseModel):
     serial: str = ""
     access_code: str | None = None  # None keeps the saved code; "" clears it
     url_prefix: str = "file:///sdcard/"
+    project_file: str = "builtin"
+    thumbnail: str = "both"
+    screen_progress: bool = True
+    screen_status: bool = True
+    claim_pause: int | None = None
+    claim_pen: int | None = 4
 
 
 class SendRequest(PlanRequest):
-    kind: str = "art"  # "art" | "smoke" | "press"
+    kind: str = "art"  # "art" | "smoke" | "press" | "align"
     start: bool = False
+    title: str = ""  # the project's name, shown in Bambu Connect and Bambu Studio
 
 
 def _printer_error(err: Exception):
@@ -399,6 +453,11 @@ def printer_settings():
 def save_printer_settings(body: PrinterSettings):
     cfg = printer.load_config()
     cfg.ip, cfg.serial, cfg.url_prefix = body.ip.strip(), body.serial.strip(), body.url_prefix.strip()
+    cfg.project_file = body.project_file if body.project_file in ("builtin", "template") else "builtin"
+    cfg.thumbnail = body.thumbnail if body.thumbnail in ("plot", "picture", "both") else "both"
+    cfg.screen_progress, cfg.screen_status = body.screen_progress, body.screen_status
+    cfg.claim_pause = body.claim_pause if body.claim_pause in SCREEN_MESSAGES else None
+    cfg.claim_pen = body.claim_pen if body.claim_pen in SCREEN_MESSAGES else None
     if body.access_code is not None:
         cfg.access_code = body.access_code.strip()
     printer.save_config(cfg)
@@ -434,8 +493,8 @@ def test_printer():
         _printer_error(err)
 
 
-def _job_text(req: SendRequest) -> tuple[str, str]:
-    lay = req.layout
+def _job_text(req: SendRequest) -> tuple[str, str, Composite | None]:
+    lay, comp = req.layout, None
     try:
         if req.kind == "smoke":
             text, stem = smoke_test(lay), "bambuplot-smoke"
@@ -444,10 +503,11 @@ def _job_text(req: SendRequest) -> tuple[str, str]:
         elif req.kind == "align":
             text, stem = alignment_test(lay), "bambuplot-alignment"
         else:
-            text, stem = _job_gcode(req, title=req.effect), f"bambuplot-{req.effect}"
+            comp = _compose(req)
+            text, stem = _job_gcode(req, title=req.effect, comp=comp), f"bambuplot-{req.effect}"
     except (UnsafeLayout, GcodeSafetyError, ValueError) as err:
         _refuse(err)
-    return text, stem
+    return text, stem, comp
 
 
 def _min_z(lay: Layout) -> float:
@@ -456,21 +516,24 @@ def _min_z(lay: Layout) -> float:
 
 @app.post("/api/send")
 def send(req: SendRequest):
-    text, stem = _job_text(req)
+    text, stem, comp = _job_text(req)
     try:
-        return printer.send_job(printer.load_config(), text, stem, min_z=_min_z(req.layout), start=req.start,
-                                bed=(req.layout.bed.w, req.layout.bed.h))
+        cfg = printer.load_config()
+        project = _project_file(req, text, req.title or stem, comp)
+        return printer.send_job(cfg, text, stem, min_z=_min_z(req.layout), start=req.start,
+                                bed=(req.layout.bed.w, req.layout.bed.h), project=project)
     except (printer.PrinterError, TemplateError) as err:
         _printer_error(err)
 
 
 @app.post("/api/package")
 def package_job(req: SendRequest):
-    """The job as a .gcode.3mf built from the saved template, for Bambu Connect or the SD card."""
-    text, stem = _job_text(req)
+    """The job as a .gcode.3mf (built in, or from the saved template), for Bambu Connect or the SD card."""
+    text, stem, comp = _job_text(req)
     try:
-        name, data, _ = printer.build_job(text, stem, min_z=_min_z(req.layout), require_template=True,
-                                          bed=(req.layout.bed.w, req.layout.bed.h))
+        project = _project_file(req, text, req.title or stem, comp)
+        name, data, _ = printer.build_job(text, stem, min_z=_min_z(req.layout), bed=(req.layout.bed.w, req.layout.bed.h),
+                                          project=project)
     except (printer.PrinterError, TemplateError) as err:
         raise HTTPException(422, str(err))
     return Response(data, media_type="application/octet-stream",
@@ -479,9 +542,11 @@ def package_job(req: SendRequest):
 
 @app.post("/api/connect")
 def bambu_connect(req: SendRequest):
-    text, stem = _job_text(req)
+    text, stem, comp = _job_text(req)
     try:
-        return printer.open_in_bambu_connect(text, stem, min_z=_min_z(req.layout), bed=(req.layout.bed.w, req.layout.bed.h))
+        project = _project_file(req, text, req.title or stem, comp)
+        return printer.open_in_bambu_connect(text, stem, min_z=_min_z(req.layout), bed=(req.layout.bed.w, req.layout.bed.h),
+                                             project=project)
     except printer.PrinterError as err:
         raise HTTPException(422, str(err))
     except TemplateError as err:

@@ -228,7 +228,28 @@ BambuPlot can upload jobs to the A1 Mini over your local network, and optionally
 
 **In the app, open the Printer tab:**
 1. Enter the IP address, the serial number and the access code, then press **Test connection**.
-2. Add a **project template**. Bambu printers start jobs from `.gcode.3mf` files. In Bambu Studio, slice any small model for the A1 mini, then choose File → Export → Export plate sliced file. BambuPlot puts each plot inside that file. Without a template, plain `.gcode` is uploaded and you start it from the printer's screen.
+2. Choose how the **project file** is made (Printer tab → Project File). Bambu printers and Bambu Connect start jobs from `.gcode.3mf` files.
+   - **BambuPlot (built in)**, the default, writes the whole file itself. No template is needed.
+   - **My template** puts each plot inside a plate you sliced in Bambu Studio (slice any small model for the A1 mini, then File → Export → Export plate sliced file).
+
+### What the built-in project file contains
+
+- **Thumbnail:** the picture with the plot over it, the plot alone, or the source picture alone (Printer tab → Thumbnail). The printer screen, Bambu Connect and Bambu Studio show it. There is also a top view of the plate.
+- **Time and attributes:** the estimated plot time (including about 75 s for setup), the number of pauses, the printer model, the plate size and the project title. Each pen shows up as a "filament" in its pen colour.
+- If you have a template saved, its printer settings are reused. Otherwise built-in A1 mini defaults are used.
+
+### Printer screen messages
+
+- **Progress and time left:** `M73` lines update the percentage and the remaining time on the printer's screen while it plots.
+- **Status messages:** `M1002 gcode_claim_action` shows one of the printer's built-in status messages:
+  - "Homing toolhead" while homing,
+  - your choice at the setup pauses and at pen changes (for example "Paused by the user" or "Changing filament"),
+  - "Printing" while drawing.
+
+Caveats:
+- The firmware can't show custom text. Only its built-in messages can be chosen, so the pause instructions themselves stay in the app.
+- Beeps are not used. The sound command (`M1006`) also switches the motors on and off, which could shift the head mid-job.
+- None of this has been tested on a real printer yet. If a message looks wrong, switch it off in the Printer tab.
 
 **To send a job:** in the Job panel, choose **Send to printer…**, pick the artwork, the smoke test or the press ladder, then either:
 - **Upload only**, or
@@ -237,11 +258,11 @@ BambuPlot can upload jobs to the A1 Mini over your local network, and optionally
 You still put the pen in at Pause 1 at the printer.
 
 **Open in Bambu Connect (over the internet):** sends the job through your Bambu account, using [Bambu Connect](https://wiki.bambulab.com/en/software/bambu-connect), Bambu's official app for third-party software.
-1. BambuPlot packages the job into your template and saves it in `~/.config/bambuplot/jobs/` (the last 20 jobs are kept).
+1. BambuPlot packages the job into a `.gcode.3mf` and saves it in `~/.config/bambuplot/jobs/` (the last 20 jobs are kept).
 2. It opens Bambu Connect with the job loaded.
 3. In Bambu Connect, pick your printer and send it, then start the job at the printer.
 
-This needs Bambu Connect installed and a project template. The printer must be connected to the Bambu cloud, so Developer Mode has to be off. Same job from the command line: `bambuplot connect FILE.gcode`.
+This needs Bambu Connect installed. The printer must be connected to the Bambu cloud, so Developer Mode has to be off. Same job from the command line: `bambuplot connect FILE.gcode`.
 
 It isn't known yet whether Bambu Connect accepts a job with no extrusion; try the smoke test first.
 
@@ -310,7 +331,7 @@ Millimeters, origin at the plate's front-left corner, +X right, +Y toward the ba
 
 ## Safety
 
-Every file passes through `safety.validate` before it is written. It is an allow-list (`G0 G1 G21 G28 G90 M204 M400`) that rejects:
+Every file passes through `safety.validate` before it is written. It is an allow-list (`G0 G1 G21 G28 G90 M204 M400 M73`, plus `M1002 gcode_claim_action : N`) that rejects:
 
 - extrusion, heaters and any other command,
 - moves outside 0–180 mm,
@@ -330,10 +351,11 @@ Every file passes through `safety.validate` before it is written. It is an allow
 | `mask.py` | Background removal, box select (GrabCut), erase/restore brushes, undo |
 | `tsp.py` | Nearest-neighbor tour and 2-opt for stipple |
 | `paths.py` | Clamp, simplify, order, merge, stats |
-| `gcode.py` | Start sequence with pauses, stroke compiler |
+| `gcode.py` | Start sequence with pauses, stroke compiler, progress and screen messages |
 | `safety.py` | G-code allow-list validator |
 | `calibrate.py` | Smoke test and press ladder |
-| `package.py` | Wraps G-code in a `.gcode.3mf` from a Bambu Studio template |
+| `package.py` | Builds `.gcode.3mf` project files (built in or from a Bambu Studio template) |
+| `thumbs.py` | Plate thumbnails: picture, plot, or both; top view |
 | `printer.py` | LAN Only upload (FTPS), start/status (MQTT), Bambu Connect hand-off |
 | `extras.py` | Border and signature: storage, tracing from a photo, placement, clearing art behind it |
 | `layers.py` | Layer model, frames inside the area, pen slots and grouping |

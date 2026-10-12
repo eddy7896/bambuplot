@@ -27,6 +27,8 @@ import time
 from pathlib import Path
 from urllib.parse import quote
 
+from typing import Literal
+
 from pydantic import BaseModel
 
 from . import package
@@ -51,6 +53,14 @@ class PrinterConfig(BaseModel):
     serial: str = ""
     access_code: str = ""
     url_prefix: str = "file:///sdcard/"
+    # Project files (.gcode.3mf): written by BambuPlot, or made from the user's sliced template.
+    project_file: Literal["builtin", "template"] = "builtin"
+    thumbnail: Literal["plot", "picture", "both"] = "both"
+    # The printer screen during a job.
+    screen_progress: bool = True
+    screen_status: bool = True
+    claim_pause: int | None = None
+    claim_pen: int | None = 4
 
     def code(self) -> str:
         return os.environ.get(ACCESS_ENV) or self.access_code
@@ -72,6 +82,12 @@ class PrinterConfig(BaseModel):
             "access_code_from_env": bool(os.environ.get(ACCESS_ENV)),
             "url_prefix": self.url_prefix,
             "template": template_info(),
+            "project_file": self.project_file,
+            "thumbnail": self.thumbnail,
+            "screen_progress": self.screen_progress,
+            "screen_status": self.screen_status,
+            "claim_pause": self.claim_pause,
+            "claim_pen": self.claim_pen,
         }
 
 
@@ -292,11 +308,17 @@ def safe_name(stem: str) -> str:
 
 
 def build_job(gcode: str, stem: str, min_z: float, use_template: bool = True,
-              require_template: bool = False, bed: tuple[float, float] = (180.0, 180.0)) -> tuple[str, bytes, str | None]:
-    """Validate and package a job: (file name, bytes, plate param or None for plain G-code)."""
+              require_template: bool = False, bed: tuple[float, float] = (180.0, 180.0),
+              project: tuple[bytes, str] | None = None) -> tuple[str, bytes, str | None]:
+    """Validate and package a job: (file name, bytes, plate param or None for plain G-code).
+
+    ``project``: a ready .gcode.3mf and its plate G-code path (the built-in project file).
+    """
     problems = validate(gcode, min_z=min_z, bed_w=bed[0], bed_h=bed[1])
     if problems:
         raise PrinterError("Refusing to send unsafe G-code: " + "; ".join(problems[:5]))
+    if project is not None:
+        return safe_name(stem) + ".gcode.3mf", project[0], project[1]
     tpl = template_path()
     if use_template and tpl.exists():
         tpl_bytes = tpl.read_bytes()
@@ -310,12 +332,13 @@ def build_job(gcode: str, stem: str, min_z: float, use_template: bool = True,
 
 
 def send_job(cfg: PrinterConfig, gcode: str, stem: str, min_z: float, start: bool,
-             use_template: bool = True, timeout: float = 30, bed: tuple[float, float] = (180.0, 180.0)) -> dict:
+             use_template: bool = True, timeout: float = 30, bed: tuple[float, float] = (180.0, 180.0),
+             project: tuple[bytes, str] | None = None) -> dict:
     """Validate, package, upload and optionally start a job. Returns what happened."""
     missing = cfg.ready()
     if missing:
         raise PrinterError("Printer settings incomplete: add " + " and ".join(missing) + ".")
-    name, data, plate_param = build_job(gcode, stem, min_z, use_template, bed=bed)
+    name, data, plate_param = build_job(gcode, stem, min_z, use_template, bed=bed, project=project)
 
     if start:
         # Never start on top of another job.
@@ -363,9 +386,9 @@ def _open_url(url: str) -> None:
 
 
 def open_in_bambu_connect(gcode: str, stem: str, min_z: float, opener=None,
-                          bed: tuple[float, float] = (180.0, 180.0)) -> dict:
+                          bed: tuple[float, float] = (180.0, 180.0), project: tuple[bytes, str] | None = None) -> dict:
     """Package the job, save it locally and hand it to Bambu Connect."""
-    name, data, _ = build_job(gcode, stem, min_z, require_template=True, bed=bed)
+    name, data, _ = build_job(gcode, stem, min_z, require_template=project is None, bed=bed, project=project)
     folder = jobs_dir()
     folder.mkdir(parents=True, exist_ok=True)
     path = (folder / name).resolve()

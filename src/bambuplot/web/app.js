@@ -516,10 +516,11 @@ $('importLayout').onchange=async e=>{
 /* downloads */
 for(const id of ['dlG','dl3mf','dlSmoke','dlPress','dlAlign'])$(id).addEventListener('click',()=>$('dlMenu').hidePopover?.());
 $('dlG').onclick=()=>download('/api/gcode',planBody(),`bambuplot-${job.effect}.gcode`);
+const jobTitle=()=>$('projName').value||'BambuPlot plot';
 $('dl3mf').onclick=async()=>{
   $('problems').hidden=true;
   try{
-    const r=await post('/api/package',{...planBody(),kind:'art'});
+    const r=await post('/api/package',{...planBody(),kind:'art',title:jobTitle()});
     if(!r.ok){const e=await r.json().catch(()=>({}));showProblems(r.status===404?'The server is out of date. Restart it.':e.detail);return}
     const name=(r.headers.get('Content-Disposition')||'').match(/filename="([^"]+)"/)?.[1]||'bambuplot.gcode.3mf';
     const a=document.createElement('a');a.href=URL.createObjectURL(await r.blob());a.download=name;document.body.appendChild(a);a.click();a.remove();
@@ -613,9 +614,15 @@ function renderPrinter(c){
   const code=$('pr-code');code.value='';code.disabled=c.access_code_from_env;
   code.placeholder=c.access_code_from_env?'Set by BAMBU_ACCESS_CODE':c.has_access_code?'Saved. Leave blank to keep it.':'8 characters, from the printer screen';
   const t=c.template;
-  $('tpl-info').textContent=!t?'No template yet. Plain .gcode will be uploaded.':t.error?t.error:
+  $('tpl-info').textContent=!t?'No template yet.':t.error?t.error:
     `Template ready: sliced for the ${t.printer_model||'unknown printer'}, plots go into ${t.plate}.${t.warning?' '+t.warning:''}`;
   $('tpl-remove').disabled=!t;
+  $('pf-mode').value=c.project_file||'builtin';$('pf-thumb').value=c.thumbnail||'both';
+  $('sc-progress').checked=c.screen_progress!==false;$('sc-status').checked=c.screen_status!==false;
+  const opts='<option value="">No change</option>'+(DEF.screen_messages||[]).map(m=>`<option value="${m.code}">${esc(m.label)}</option>`).join('');
+  $('sc-pause').innerHTML=opts;$('sc-pen').innerHTML=opts;
+  $('sc-pause').value=c.claim_pause==null?'':String(c.claim_pause);$('sc-pen').value=c.claim_pen==null?'':String(c.claim_pen);
+  syncProjectFileUI();
 }
 async function loadPrinter(){
   try{const r=await fetch('/api/printer');
@@ -624,10 +631,19 @@ async function loadPrinter(){
 }
 async function savePrinter(){
   const code=$('pr-code').value.trim();
-  const r=await post('/api/printer',{ip:$('pr-ip').value,serial:$('pr-serial').value,url_prefix:$('pr-url').value||'file:///sdcard/',access_code:code?code:null});
+  const r=await post('/api/printer',{ip:$('pr-ip').value,serial:$('pr-serial').value,url_prefix:$('pr-url').value||'file:///sdcard/',access_code:code?code:null,
+    project_file:$('pf-mode').value,thumbnail:$('pf-thumb').value,screen_progress:$('sc-progress').checked,screen_status:$('sc-status').checked,
+    claim_pause:$('sc-pause').value===''?null:+$('sc-pause').value,claim_pen:$('sc-pen').value===''?null:+$('sc-pen').value});
   if(!r.ok){msg('pr-msg',r.status===404?'The server is out of date. Stop it (Ctrl+C) and run `uv run bambuplot serve` again.':'Could not save the settings.','err');return false}
   renderPrinter(await r.json());return true;
 }
+function syncProjectFileUI(){
+  const tpl=$('pf-mode').value==='template';$('tplBox').hidden=!tpl;$('sc-msgs').hidden=!$('sc-status').checked;
+  $('pf-note').textContent=tpl?'Your sliced template is copied and the plot swapped in; its own thumbnail and settings are kept.'
+    :'BambuPlot writes the whole project file: the plot, a thumbnail, the printer model, the time estimate and the pause count. No slicer needed.';
+  $('pf-thumb').closest('.srow').hidden=tpl;
+}
+for(const id of ['pf-mode','pf-thumb','sc-progress','sc-status','sc-pause','sc-pen'])$(id).addEventListener('input',async()=>{syncProjectFileUI();await savePrinter()});
 $('pr-save').onclick=async()=>{if(await savePrinter())msg('pr-msg','Saved.','ok')};
 $('pr-test').onclick=async()=>{
   if(!await savePrinter())return;msg('pr-msg','Connecting…');
@@ -656,7 +672,7 @@ async function sendJob(start){
   if(printerCfg&&(!printerCfg.ip||!printerCfg.has_access_code)){msg('send-msg','Add the printer IP and access code in the Printer tab first.','err');return}
   $('send-upload').disabled=$('send-start').disabled=true;msg('send-msg',start?'Uploading and starting…':'Uploading…');
   try{
-    const r=await post('/api/send',{...planBody(),kind,start}),d=await r.json();
+    const r=await post('/api/send',{...planBody(),kind,start,title:jobTitle()}),d=await r.json();
     if(!r.ok){msg('send-msg',errText(d.detail),'err');return}
     msg('send-msg',d.started?`Started ${d.file}. Go to the printer: at Pause 1, put the pen in and touch it to the paper.`
       :`Uploaded ${d.file}. Start it from the printer's screen when you're ready.`,'ok');
@@ -669,7 +685,7 @@ $('send-connect').onclick=async()=>{
   if(isBad()){msg('send-msg','Fix the failing safety checks first.','err');return}
   $('send-connect').disabled=true;msg('send-msg','Packaging for Bambu Connect…');
   try{
-    const r=await post('/api/connect',{...planBody(),kind:$('send-kind').value}),d=await r.json();
+    const r=await post('/api/connect',{...planBody(),kind:$('send-kind').value,title:jobTitle()}),d=await r.json();
     if(!r.ok){msg('send-msg',errText(d.detail),'err');return}
     msg('send-msg',`Opened ${d.file} in Bambu Connect. Choose your printer there and send it, then start it at the printer. Saved at ${d.path}.`,'ok');
   }catch(_){msg('send-msg','Could not reach the BambuPlot server.','err')}

@@ -6,9 +6,14 @@ tools or leave the plate is rejected, whatever produced it.
 
 from __future__ import annotations
 
+import re
+
 from .layout import BED_H, BED_W
 
-ALLOWED = {"G0", "G1", "G21", "G28", "G90", "M204", "M400"}
+
+ALLOWED = {"G0", "G1", "G21", "G28", "G90", "M204", "M400", "M73"}
+# The one M1002 form allowed: pick one of the printer's own status messages for the screen.
+CLAIM = re.compile(r"^M1002 gcode_claim_action\s*:\s*\d{1,3}$", re.IGNORECASE)
 MAX_Z = 60.0
 EPS = 1e-6
 
@@ -27,6 +32,8 @@ def validate(text: str, min_z: float, bed_w: float = BED_W, bed_h: float = BED_H
         code = raw.split(";", 1)[0].strip()
         if not code:
             continue
+        if CLAIM.match(code):
+            continue
         words = code.split()
         cmd = words[0].upper()
         if cmd not in ALLOWED:
@@ -38,6 +45,8 @@ def validate(text: str, min_z: float, bed_w: float = BED_W, bed_h: float = BED_H
                 params[word[0].upper()] = float(word[1:])
             except (ValueError, IndexError):
                 problems.append(f"line {n}: can't read '{word}'")
+        if cmd == "M73" and set(params) - {"P", "R", "L"}:
+            problems.append(f"line {n}: M73 may only set progress (P), time left (R) or layer (L)")
         if "E" in params:
             problems.append(f"line {n}: extrusion (E) is not allowed")
         if cmd == "G90":

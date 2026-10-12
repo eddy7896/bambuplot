@@ -173,9 +173,15 @@ def test_connect_refuses_unsafe_gcode(home):
 def test_api_package_download(home):
     client = TestClient(app)
     body = {"kind": "smoke", "layout": Layout().model_dump()}
-    assert client.post("/api/package", json=body).status_code == 422  # no template yet
-    printer.save_template(make_template())
-    r = client.post("/api/package", json=body)
+    r = client.post("/api/package", json=body)  # no template needed: BambuPlot writes the project file
     assert r.status_code == 200 and ".gcode.3mf" in r.headers["content-disposition"]
     with zipfile.ZipFile(io.BytesIO(r.content)) as z:
         assert "G28" in z.read("Metadata/plate_1.gcode").decode()
+    # Choosing "my template" uses the saved template instead.
+    printer.save_template(make_template())
+    cfg = printer.load_config()
+    cfg.project_file = "template"
+    printer.save_config(cfg)
+    r = client.post("/api/package", json=body)
+    with zipfile.ZipFile(io.BytesIO(r.content)) as z:
+        assert z.read("Metadata/plate_1.png") == b"\x89PNG"  # the template's own thumbnail

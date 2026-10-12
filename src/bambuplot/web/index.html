@@ -404,14 +404,31 @@
           <p class="foot">On the printer, turn on <b>LAN Only mode</b>; its screen shows the IP and access code. To start jobs from here, also turn on <b>Developer Mode</b> and restart the printer. The code is stored only on this Mac.</p>
         </section>
         <section class="group">
-          <h2>Project Template</h2>
-          <p class="foot" id="tpl-info">No template yet. Plain .gcode will be uploaded.</p>
-          <div class="btnrow tight">
-            <label class="btn small" for="tpl-file">Choose .gcode.3mf…</label>
-            <button class="btn small" type="button" id="tpl-remove">Remove</button>
+          <h2>Project File (.gcode.3mf)</h2>
+          <div class="srow sel"><label for="pf-mode">Made by</label>
+            <select id="pf-mode"><option value="builtin">BambuPlot (built in)</option><option value="template">My sliced template</option></select></div>
+          <div class="srow sel" title="The picture Bambu Connect, Bambu Studio and the printer show for the job"><label for="pf-thumb">Thumbnail</label>
+            <select id="pf-thumb"><option value="both">Picture with the plot</option><option value="plot">The plot</option><option value="picture">The source picture</option></select></div>
+          <p class="foot" id="pf-note">BambuPlot writes the whole project file: the plot, a thumbnail, the printer model, the time estimate and the pause count. No slicer needed.</p>
+          <div id="tplBox" hidden>
+            <p class="foot" id="tpl-info">No template yet.</p>
+            <div class="btnrow tight">
+              <label class="btn small" for="tpl-file">Choose .gcode.3mf…</label>
+              <button class="btn small" type="button" id="tpl-remove">Remove</button>
+            </div>
+            <p class="foot">In Bambu Studio, slice any small model for your printer, then File → Export → Export plate sliced file. BambuPlot swaps in the plot.</p>
           </div>
           <input type="file" id="tpl-file" accept=".3mf" hidden>
-          <p class="foot">In Bambu Studio, slice any small model for the A1 mini, then File → Export → Export plate sliced file.</p>
+        </section>
+        <section class="group">
+          <h2>Printer Screen</h2>
+          <div class="srow sw" title="M73: progress bar and minutes left"><label for="sc-progress">Show progress and time left</label><input type="checkbox" class="switch" id="sc-progress"></div>
+          <div class="srow sw" title="M1002 gcode_claim_action: one of the printer's own status messages"><label for="sc-status">Show status messages</label><input type="checkbox" class="switch" id="sc-status"></div>
+          <div id="sc-msgs">
+            <div class="srow sel"><label for="sc-pause">At setup pauses</label><select id="sc-pause"></select></div>
+            <div class="srow sel"><label for="sc-pen">At pen changes</label><select id="sc-pen"></select></div>
+            <p class="foot">The printer can't show your own words, only its built-in messages. Homing shows "Homing toolhead" and drawing shows "Printing". The G-code comments at each pause still say exactly what to do.</p>
+          </div>
         </section>
         <details class="group">
           <summary><h2>Advanced</h2></summary>
@@ -451,7 +468,7 @@
 <!-- ============================== popovers ============================== -->
 <div popover id="dlMenu" class="menu" role="menu">
   <button type="button" id="dlG" role="menuitem">G-code <kbd>⇧⌘E</kbd></button>
-  <button type="button" id="dl3mf" role="menuitem" title="For Bambu Connect or the SD card. Needs a project template.">Bambu project (.gcode.3mf)</button>
+  <button type="button" id="dl3mf" role="menuitem" title="For Bambu Connect, the SD card or Bambu Studio: with thumbnail and time">Bambu project (.gcode.3mf)</button>
   <hr>
   <button type="button" id="dlSmoke" role="menuitem">Smoke test</button>
   <button type="button" id="dlPress" role="menuitem">Press ladder</button>
