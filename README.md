@@ -102,6 +102,24 @@ The **Layers** panel at the top of the inspector holds a project's layers. Each 
 
 **Several pens:** between pens, the job returns to the touch-off point and pauses ("swap to Pen 2 (blue)") so you can change the pen and touch it off, just like Pause 1. The border and signature are drawn with the first layer's pen, after the last of that pen's opening run of layers. Each picture is stored once in the project, and projects from earlier versions open as a single layer.
 
+### Flipbooks from a video
+
+Open a video (MP4, MOV, M4V, WebM, AVI, MKV or an animated GIF) the same way as a picture: Open, drag it onto the plate, or **Add Layer → New picture**. BambuPlot keeps the clip in the project and takes frames from it (12 a second, up to 48, to start). The layer's effect, tone settings and crop apply to every frame.
+
+- **Scrub** with the slider under the plate, or press **,** and **.** to step one frame.
+- **Picture → Video & Flipbook → Frames to take:** choose the part of the clip (from/to, in seconds), how many frames a second, and the most frames to take (up to 300). Press **Take Frames**.
+- **Plot every frame** turns the job into a flipbook. Turned off, the layer plots only the frame you're looking at, like a still picture.
+- **Pages per sheet:** 1 × 1 plots one frame per sheet, filling the drawing area. More pages put several small frames on each sheet to cut out, in reading order from the back-left corner.
+  - **Gap:** space between pages, where you cut. **Cut marks** draw small corner ticks there.
+  - **Binding strip:** a blank strip on each page's left for staples or glue.
+  - **Frame numbers** go in the binding strip when there's room, or in the page's bottom-left corner with the drawing cleared behind them.
+- **Frames to plot:** a first and last frame, so a long flipbook can be split into several jobs.
+- **Preview Flipbook…** (or ▶ beside the slider) plays the plotted pages as an animation.
+
+**How the job runs:** each page is finished before the next starts. After the last page on a sheet, the pen lifts 30 mm above the clip height and the head moves so the plate comes forward. The printer pauses so you can swap in the next sheet. Put it exactly where the last one was: an L of tape on the plate at one corner makes this repeatable. Press Resume. Turn on **Check the pen on each sheet** for an extra stop at the touch-off point on every new sheet. The printer screen shows "Paused by the user" at sheet changes; change it under Printer → Printer Screen → At new sheets.
+
+Selection and background removal work on single pictures, not video frames. Not yet tested on a real printer: the sheet-change position and lift.
+
 ### Border and signature
 
 These are in **Effect → Finishing** and work with every effect, including SVG files.
@@ -353,7 +371,7 @@ Every file passes through `safety.validate` before it is written. It is an allow
 | `mask.py` | Background removal, box select (GrabCut), erase/restore brushes, undo |
 | `tsp.py` | Nearest-neighbor tour and 2-opt for stipple |
 | `paths.py` | Clamp, simplify, order, merge, stats |
-| `gcode.py` | Start sequence with pauses, stroke compiler, progress and screen messages |
+| `gcode.py` | Start sequence with pauses, stroke compiler, sheet and pen changes, progress and screen messages |
 | `safety.py` | G-code allow-list validator |
 | `calibrate.py` | Smoke test and press ladder |
 | `package.py` | Builds `.gcode.3mf` project files (built in or from a Bambu Studio template) |
@@ -361,6 +379,8 @@ Every file passes through `safety.validate` before it is written. It is an allow
 | `printer.py` | LAN Only upload (FTPS), start/status (MQTT), Bambu Connect hand-off |
 | `extras.py` | Border and signature: storage, tracing from a photo, placement, clearing art behind it |
 | `layers.py` | Layer model, frames inside the area, pen slots and grouping |
+| `video.py` | Project videos: probe, take frames, store them |
+| `flipbook.py` | Flipbook pages: settings, page grid, frame numbers, cut marks, sheets |
 | `projects.py` | Projects on disk: state, source file, selection, thumbnail |
 | `server.py` / `web/` | FastAPI backend and the browser UI |
 

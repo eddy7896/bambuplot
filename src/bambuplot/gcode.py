@@ -41,6 +41,7 @@ class Screen:
     claim_pause: int | None = None  # the three setup pauses
     claim_draw: int | None = 0  # "Printing"
     claim_pen: int | None = 4  # "Changing filament": the nearest to a pen change
+    claim_sheet: int | None = 16  # "Paused by the user": a new sheet of paper (flipbooks)
     setup_seconds: float = 75.0  # homing, moves and the outline trace (not your time at the pauses)
 
 
@@ -206,6 +207,46 @@ def pen_change(w: _Writer, layout: Layout, label: str, screen: Screen | None = N
     _claim(w, screen, screen.claim_draw if screen else None, "drawing")
 
 
+PARK_LIFT = 30.0  # mm above the clip-safe height while you change sheets
+
+
+def park_z(layout: Layout) -> float:
+    from .safety import MAX_Z
+    return min(layout.safe_z + PARK_LIFT, MAX_Z - 2)
+
+
+def sheet_change(w: _Writer, layout: Layout, sheet: int, total: int, pen_label: str, check: bool,
+                 screen: Screen | None = None) -> None:
+    """Lift the pen high and bring the plate forward so the next sheet can go in.
+
+    The pen stays in the holder. With ``check`` the head then goes back to the
+    touch-off point at touch height and pauses again, so you can check the tip
+    still just touches the new sheet.
+    """
+    z, f = layout.z, layout.feed
+    bed = layout.bed
+    cx, _ = layout.to_nozzle(np.array(layout.area.center, float))
+    nx = float(np.clip(cx, 5.0, bed.w - 5.0))
+    ny = bed.h - 5.0  # nozzle at the back of the plate: the plate slides out toward you
+    px, py = nx + layout.pen.offset_x, ny + layout.pen.offset_y  # the same spot in pen coordinates
+    w(f"; ===== new sheet {sheet} of {total} =====")
+    w(f"G1 Z{_z(park_z(layout))} F{f.z}", "lift the pen well clear")
+    w(f"G1 {_xy(layout, px, py)} F{f.travel}", "bring the plate forward")
+    w("M400")
+    _claim(w, screen, screen.claim_sheet if screen else None, "new sheet")
+    w("M400 U1", f"PAUSE: take out sheet {sheet - 1}, clip in sheet {sheet} exactly where it was")
+    lx, ly, _, _ = layout.local_touch()
+    tx, ty = layout.area_to_pen([lx, ly])
+    w(f"G1 {_xy(layout, tx, ty)} F{f.travel}", "back to the touch-off point")
+    if check:
+        w(f"G1 Z{_z(z.touch)} F{f.z_slow}", "touch-off height")
+        w("M400")
+        _claim(w, screen, screen.claim_pause if screen else None, "check the pen")
+        w("M400 U1", f"PAUSE: check {pen_label} just touches the new sheet")
+    w(f"G1 Z{_z(z.up)} F{f.z}")
+    _claim(w, screen, screen.claim_draw if screen else None, "drawing")
+
+
 def stroke_seconds(layout: Layout, groups: list[tuple[str, list[np.ndarray]]]) -> list[list[float]]:
     """Estimated seconds for each stroke (travel to it, pen down, draw, pen up), per group."""
     z, f = layout.z, layout.feed
@@ -227,10 +268,26 @@ def stroke_seconds(layout: Layout, groups: list[tuple[str, list[np.ndarray]]]) -
     return out
 
 
-def job_seconds(layout: Layout, groups: list[tuple[str, list[np.ndarray]]], screen: Screen | None = None) -> float:
+def job_seconds(layout: Layout, groups: list[tuple[str, list[np.ndarray]]], screen: Screen | None = None,
+                sheets: list[int] | None = None) -> float:
     """Machine time for the whole job (not counting the time you spend at the pauses)."""
     setup = (screen or Screen()).setup_seconds
-    return setup * (1 + 0.4 * max(0, len(groups) - 1)) + sum(sum(t) for t in stroke_seconds(layout, groups))
+    marks = _boundaries(groups, sheets)
+    pens = sum(p for _, p in marks)
+    new_sheets = sum(s for s, _ in marks)
+    return setup * (1 + 0.4 * pens + 0.3 * new_sheets) + sum(sum(t) for t in stroke_seconds(layout, groups))
+
+
+def _boundaries(groups, sheets: list[int] | None) -> list[tuple[bool, bool]]:
+    """For each group: (starts a new sheet, needs a pen change)."""
+    out = []
+    for i, (label, _) in enumerate(groups):
+        if i == 0:
+            out.append((False, False))
+            continue
+        new_sheet = bool(sheets) and sheets[i] != sheets[i - 1]
+        out.append((new_sheet, label != groups[i - 1][0]))
+    return out
 
 
 def _hms(seconds: float) -> str:
@@ -240,8 +297,13 @@ def _hms(seconds: float) -> str:
 
 
 def compile_groups(layout: Layout, groups: list[tuple[str, list[np.ndarray]]], title: str = "",
-                   check_layout: bool = True, screen: Screen | None = None) -> str:
-    """Several pens in one job: (pen label, pen-coordinate lines) groups, with a pause between them."""
+                   check_layout: bool = True, screen: Screen | None = None,
+                   sheets: list[int] | None = None, check_each_sheet: bool = False) -> str:
+    """Several pens in one job: (pen label, pen-coordinate lines) groups, with a pause between them.
+
+    ``sheets`` gives each group's sheet number (flipbooks). Where it goes up, the job pauses
+    for a new sheet; a pen change there follows the sheet change.
+    """
     if check_layout:
         bad = [f"{c.title}: {c.detail}" for c in layout.checks() if c.state == "bad"]
         if bad:
@@ -249,8 +311,10 @@ def compile_groups(layout: Layout, groups: list[tuple[str, list[np.ndarray]]], t
     z, f = layout.z, layout.feed
     w = _Writer()
     per_stroke = stroke_seconds(layout, groups)
-    total = job_seconds(layout, groups, screen)
-    pens = ", ".join(label for label, _ in groups)
+    total = job_seconds(layout, groups, screen, sheets)
+    pens = ", ".join(dict.fromkeys(label for label, _ in groups))
+    marks = _boundaries(groups, sheets)
+    total_sheets = (max(sheets) if sheets else 1)
     # The header block Bambu Studio writes: Bambu Studio and Bambu Connect read the time from it.
     w("; HEADER_BLOCK_START")
     w("; BambuPlot pen plot")
@@ -263,14 +327,24 @@ def compile_groups(layout: Layout, groups: list[tuple[str, list[np.ndarray]]], t
     progress = bool(screen and screen.progress)
     if progress:
         w(f"M73 P0 R{int(np.ceil(total / 60))}", "screen: progress and time left")
-    start_sequence(w, layout, title + (f" · pens: {pens}" if len(groups) > 1 else ""), screen)
+    extra = []
+    if len({label for label, _ in groups}) > 1:
+        extra.append(f"pens: {pens}")
+    if total_sheets > 1:
+        extra.append(f"{total_sheets} sheets")
+    start_sequence(w, layout, title + "".join(f" · {e}" for e in extra), screen)
     done = (screen or Screen()).setup_seconds
     last_pct = -1
     for i, (label, lines) in enumerate(groups):
-        if i > 0:
+        new_sheet, new_pen = marks[i]
+        if new_sheet:
+            sheet_change(w, layout, sheets[i], total_sheets, groups[i - 1][0] if new_pen else label,
+                         check_each_sheet and not new_pen, screen)
+            done += 0.3 * (screen or Screen()).setup_seconds
+        if new_pen:
             pen_change(w, layout, label, screen)
             done += 0.4 * (screen or Screen()).setup_seconds
-        else:
+        if i == 0:
             w(f"; pen: {label}")
         for k, pts in enumerate(lines):
             pts = np.asarray(pts, float)

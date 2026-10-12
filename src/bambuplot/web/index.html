@@ -7,7 +7,7 @@
 <link rel="stylesheet" href="/static/app.css">
 </head>
 <body>
-<input type="file" id="file" accept="image/png,image/jpeg,image/webp,image/svg+xml,.svg" hidden>
+<input type="file" id="file" accept="image/png,image/jpeg,image/webp,image/svg+xml,.svg,video/*,.mp4,.mov,.m4v,.webm,.avi,.mkv,.gif" hidden>
 <input type="file" id="importLayout" accept="application/json,.json" hidden>
 
 <!-- ============================== dashboard ============================== -->
@@ -110,12 +110,20 @@
             <g id="srcturn" class="src" visibility="hidden"><svg id="srcwrap" x="0" y="0" width="1" height="1" viewBox="0 0 1 1" preserveAspectRatio="xMidYMid slice" overflow="hidden"><image id="srcimg" preserveAspectRatio="none" x="0" y="0" width="1" height="1" href=""></image></svg></g>
             <rect id="layerframe" x="0" y="0" width="1" height="1" visibility="hidden"></rect>
           </g>
+          <g id="flipcells"></g>
           <path id="travel" d=""></path>
           <g id="inklayers"></g>
         </g>
         <g id="over"></g>
       </svg>
       <div class="banner" id="problems" role="alert" hidden></div>
+      <div class="scrubber" id="scrubber" hidden>
+        <button class="iconbtn" type="button" id="frPrev" title="Previous frame (,)" aria-label="Previous frame"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M12 5 7 10l5 5"/></svg></button>
+        <input type="range" id="frSlider" min="0" max="0" step="1" value="0" aria-label="Frame">
+        <button class="iconbtn" type="button" id="frNext" title="Next frame (.)" aria-label="Next frame"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="m8 5 5 5-5 5"/></svg></button>
+        <span id="frLabel">Frame 1</span>
+        <button class="iconbtn" type="button" id="frPlay" title="Preview the flipbook" aria-label="Preview the flipbook"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M7 5v10l8-5z"/></svg></button>
+      </div>
       <div class="legend" aria-hidden="true">
         <span><i style="background:var(--bed)"></i>Plate</span>
         <span><i style="background:var(--paper);box-shadow:inset 0 0 0 1px var(--paper-edge)"></i>Paper</span>
@@ -169,6 +177,41 @@
               <div class="srow" title="Softens the cut edge"><label for="P.mask_feather">Edge softness</label><input type="range" id="P.mask_feather" min="0" max="3" step="0.1" data-unit="mm"><output id="P.mask_feather.out"></output></div>
             </div>
           </div>
+        </section>
+        <section class="group" id="flipGroup" hidden>
+          <h2>Video &amp; Flipbook</h2>
+          <p class="foot" id="vidInfo"></p>
+          <h3 class="subhead">Frames to take</h3>
+          <div class="grid2">
+            <label class="field"><span>From (seconds)</span><input type="number" id="vx-start" min="0" step="0.1"></label>
+            <label class="field"><span>To (seconds)</span><input type="number" id="vx-end" min="0" step="0.1"></label>
+          </div>
+          <div class="srow" title="How many frames to take from each second of video"><label for="vx-fps">Frames per second</label><input type="range" id="vx-fps" min="1" max="30" step="1"><output id="vx-fps.out"></output></div>
+          <div class="srow"><label for="vx-max">At most</label><input type="range" id="vx-max" min="1" max="300" step="1"><output id="vx-max.out"></output></div>
+          <div class="btnrow tight"><button class="btn small" type="button" id="vx-go">Take Frames</button><button class="btn small" type="button" id="vx-remove">Remove Video</button></div>
+          <p class="foot" id="vx-msg"></p>
+          <h3 class="subhead">Flipbook pages</h3>
+          <div class="srow sw" title="Plot every frame, one page after another. Off: plot only the frame you're looking at."><label for="fb-enabled">Plot every frame</label><input type="checkbox" class="switch" id="fb-enabled"></div>
+          <div id="fbOpts">
+            <div class="grid2">
+              <label class="field" title="Pages side by side on one sheet"><span>Pages across</span><select id="fb-cols"></select></label>
+              <label class="field" title="Rows of pages on one sheet"><span>Pages down</span><select id="fb-rows"></select></label>
+            </div>
+            <p class="foot" id="fb-pageinfo"></p>
+            <div class="srow" title="Space between pages, where you cut"><label for="fb-gap">Gap</label><input type="range" id="fb-gap" min="0" max="20" step="0.5" data-unit="mm"><output id="fb-gap.out"></output></div>
+            <div class="srow" title="Blank strip on each page's left edge, for staples or glue"><label for="fb-binding">Binding strip</label><input type="range" id="fb-binding" min="0" max="30" step="0.5" data-unit="mm"><output id="fb-binding.out"></output></div>
+            <div class="srow sw"><label for="fb-numbers">Frame numbers</label><input type="checkbox" class="switch" id="fb-numbers"></div>
+            <div class="srow" id="fbNumSize"><label for="fb-number_size">Number height</label><input type="range" id="fb-number_size" min="1.5" max="8" step="0.5" data-unit="mm"><output id="fb-number_size.out"></output></div>
+            <div class="srow sw" title="Small corner marks between pages to cut along"><label for="fb-cut_marks">Cut marks</label><input type="checkbox" class="switch" id="fb-cut_marks"></div>
+            <div class="srow sw" title="After each new sheet, the pen stops at the touch-off point again so you can check it still touches"><label for="fb-check_each_sheet">Check the pen on each sheet</label><input type="checkbox" class="switch" id="fb-check_each_sheet"></div>
+            <h3 class="subhead">Frames to plot</h3>
+            <div class="grid2">
+              <label class="field"><span>First frame</span><input type="number" id="fb-first" min="1" step="1"></label>
+              <label class="field"><span>Last frame</span><input type="number" id="fb-last" min="1" step="1"></label>
+            </div>
+            <p class="foot" id="fb-summary"></p>
+          </div>
+          <div class="btnrow tight"><button class="btn small accent" type="button" id="fb-preview">Preview Flipbook…</button></div>
         </section>
         <section class="group" id="toneControls">
           <h2>Tone</h2>
@@ -427,6 +470,7 @@
           <div id="sc-msgs">
             <div class="srow sel"><label for="sc-pause">At setup pauses</label><select id="sc-pause"></select></div>
             <div class="srow sel"><label for="sc-pen">At pen changes</label><select id="sc-pen"></select></div>
+            <div class="srow sel" title="Flipbooks: when the printer waits for the next sheet"><label for="sc-sheet">At new sheets</label><select id="sc-sheet"></select></div>
             <p class="foot">The printer can't show your own words, only its built-in messages. Homing shows "Homing toolhead" and drawing shows "Printing". The G-code comments at each pause still say exactly what to do.</p>
           </div>
         </section>
@@ -487,11 +531,12 @@
     <label class="field wide"><span>What to send</span>
       <select id="send-kind"><option value="art">This artwork</option><option value="smoke">Smoke test</option><option value="press">Press ladder</option><option value="align">Alignment test</option></select>
     </label>
-    <ol class="steps">
+    <ol class="steps" id="sendSteps">
       <li>The printer homes first, so the pen holder must be empty.</li>
       <li><b>Pause 1</b> at the red cross: clip the paper, push the pen down until it touches, tighten.</li>
       <li><b>Pause 2</b> after the outline trace: check where the drawing will land.</li>
       <li><b>Pause 3</b> after the small L mark: re-seat the pen if the line is faint.</li>
+      <li id="sendSheetStep" hidden></li>
     </ol>
     <div class="srow sw ack"><label for="send-ack">The holder is empty and the bed is clear</label><input type="checkbox" class="switch" id="send-ack"></div>
     <p class="msg" id="send-msg" role="status"></p>
@@ -503,6 +548,21 @@
       <button class="btn accent" type="button" id="send-start" disabled>Upload and Start</button>
     </div>
   </div>
+</dialog>
+
+<!-- ============================== flipbook preview ============================== -->
+<dialog id="flipSheet" class="sheet flipsheet" aria-labelledby="flipTitle">
+  <h2 id="flipTitle">Flipbook Preview</h2>
+  <div class="flipstage"><canvas id="flipCanvas"></canvas></div>
+  <div class="flipbar">
+    <button class="iconbtn" type="button" id="flPlay" aria-label="Play"><svg viewBox="0 0 20 20" aria-hidden="true"><path id="flPlayIcon" d="M7 5v10l8-5z"/></svg></button>
+    <input type="range" id="flFrame" min="0" max="0" step="1" value="0" aria-label="Frame">
+    <span id="flLabel"></span>
+  </div>
+  <div class="srow"><label for="flFps">Speed</label><input type="range" id="flFps" min="1" max="30" step="1" value="12"><output id="flFps.out">12 frames/s</output></div>
+  <div class="srow sw"><label for="flPic">Show the video frame</label><input type="checkbox" class="switch" id="flPic"></div>
+  <p class="msg" id="flMsg" role="status"></p>
+  <div class="sheet-buttons"><span class="spacer"></span><button class="btn accent" type="button" id="flClose">Done</button></div>
 </dialog>
 
 <!-- ============================== new project setup ============================== -->

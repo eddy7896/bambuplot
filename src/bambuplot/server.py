@@ -37,11 +37,18 @@ from . import package
 from .package import TemplateError
 from .safety import GcodeSafetyError
 from .svgin import SvgArt, SvgError, load_svg
+from . import flipbook as fbk
+from . import video
+from .flipbook import Flipbook
+from .layers import Place
 
 WEB = Path(__file__).parent / "web"
 MAX_IMAGES = 16
 MAX_PLANS = 8
 MAX_UPLOAD = 25 * 1024 * 1024
+MAX_VIDEO = 1024 * 1024 * 1024
+MAX_FRAMES_LOADED = 12
+MAX_FRAME_PLANS = 600
 
 app = FastAPI(title="BambuPlot")
 app.mount("/static", StaticFiles(directory=WEB), name="static")
@@ -62,6 +69,8 @@ class SvgSource:
     data: bytes = b""
     name: str = ""
 _plans: OrderedDict[str, Plan] = OrderedDict()
+_frames: OrderedDict[str, "RasterSource"] = OrderedDict()  # video frames, loaded from the project on demand
+_frame_plans: OrderedDict[str, list] = OrderedDict()  # flipbook pages: per-layer lines for one frame
 
 
 class PlanRequest(BaseModel):
@@ -73,6 +82,8 @@ class PlanRequest(BaseModel):
     seed: int = 0
     extras: extras_mod.Extras = Field(default_factory=extras_mod.Extras)
     layers: list[Layer] = Field(default_factory=list)  # empty = one layer from the fields above
+    project: str | None = None  # needed for layers that use the project's video
+    flipbook: Flipbook = Field(default_factory=Flipbook)
 
 
 @dataclass
@@ -80,6 +91,58 @@ class Composite:
     layers: list  # (layer id, pen, lines) in area coordinates, in drawing order
     groups: list  # (pen, lines): what gets plotted, one group per pen
     stats: dict
+    sheets: list | None = None  # flipbooks: each group's sheet number
+    flip: dict | None = None  # flipbooks: what the job covers
+
+
+def _source(image_id: str):
+    """A loaded picture, or a video frame read from its project."""
+    src = _images.get(image_id)
+    if src is not None:
+        return src
+    if image_id in _frames:
+        _frames.move_to_end(image_id)
+        return _frames[image_id]
+    ref = video.parse_frame_id(image_id)
+    if ref is None:
+        return None
+    try:
+        data = video.frame_bytes(*ref)
+    except (video.VideoError, proj.ProjectError, OSError):
+        return None
+    src = RasterSource(gray=load_gray(data), state=masking.MaskState(rgb=masking.load_rgb(data)), name=f"frame {ref[1] + 1}")
+    _remember(_frames, image_id, src, MAX_FRAMES_LOADED)
+    return src
+
+
+def _uses_video(req: PlanRequest) -> bool:
+    if req.layers:
+        return any(l.image_id == video.SENTINEL and l.visible for l in req.layers)
+    return req.image_id == video.SENTINEL
+
+
+def _video_count(req: PlanRequest) -> int:
+    if not req.project:
+        raise HTTPException(422, "Open the project again: its video isn't available.")
+    try:
+        meta = video.describe(req.project)
+    except proj.ProjectError as err:
+        raise HTTPException(404, str(err))
+    if not meta:
+        raise HTTPException(404, "This project's video is missing. Choose it again in the Picture tab.")
+    return meta["count"]
+
+
+def _at_frame(req: PlanRequest, index: int) -> PlanRequest:
+    """The request with "the video" swapped for one of its frames."""
+    if not _uses_video(req):
+        return req
+    count = _video_count(req)
+    fid = video.frame_id(req.project, max(0, min(index, count - 1)))
+    if req.layers:
+        layers = [l.model_copy(update={"image_id": fid}) if l.image_id == video.SENTINEL else l for l in req.layers]
+        return req.model_copy(update={"layers": layers})
+    return req.model_copy(update={"image_id": fid})
 
 
 def _remember(store: OrderedDict, key: str, value, limit: int):
@@ -95,9 +158,9 @@ def _plan(req: PlanRequest) -> Plan:
     gray = svg = full = None
     mask_version = None
     if req.image_id:
-        if req.image_id not in _images:
+        src = _source(req.image_id)
+        if src is None:
             raise HTTPException(404, "That image is no longer loaded. Upload it again.")
-        src = _images[req.image_id]
         if isinstance(src, SvgSource):
             svg = src.art
         else:
@@ -184,25 +247,167 @@ def _compose(req: PlanRequest) -> Composite:
     return Composite(layers=per, groups=groups, stats=st)
 
 
+# ------------------------------------------------------------------ flipbooks
+
+
+def _visible_layers(req: PlanRequest) -> list[Layer]:
+    layers = req.layers or [Layer(id="l1", effect=req.effect, params=req.params, prep=req.prep, image_id=req.image_id)]
+    return [l for l in layers if l.visible]
+
+
+def _runs(layers: list[Layer]) -> tuple[list[int], list[int]]:
+    """Neighbouring layers with the same pen form a run. Returns (each layer's run, each run's pen)."""
+    run_of, pens = [], []
+    for l in layers:
+        if not pens or pens[-1] != l.pen:
+            pens.append(l.pen)
+        run_of.append(len(pens) - 1)
+    return run_of, pens or [1]
+
+
+def _page(req: PlanRequest, art_w: float, art_h: float, index: int, signed: bool) -> tuple[list, list]:
+    """One frame drawn on one page: each visible layer's lines, and the border/signature lines (page-art mm)."""
+    lay = req.layout.model_copy(deep=True)
+    lay.area = Area(x=0, y=0, w=art_w, h=art_h)
+    ex = req.extras if signed else req.extras.model_copy(update={"signature": False})
+    r = _at_frame(req, index).model_copy(update={"layout": lay, "extras": ex})
+    layers = _visible_layers(r)
+    masks = {}
+    for l in layers:
+        src = _images.get(l.image_id) if l.image_id else None
+        if isinstance(src, RasterSource) and src.state.mask is not None:
+            masks[l.image_id] = src.state.version
+    key = hashlib.sha1(json.dumps({
+        "layers": [l.model_dump() for l in layers], "extras": ex.model_dump(), "size": [art_w, art_h],
+        "pen": lay.pen.width_mm, "touch": lay.touch_off, "seed": r.seed, "masks": masks,
+        "sig": extras_mod.info()["version"] if ex.signature else None,
+    }, sort_keys=True, default=str).encode()).hexdigest()
+    if key in _frame_plans:
+        _frame_plans.move_to_end(key)
+        return _frame_plans[key]
+    sig = extras_mod.load() if ex.signature else None
+    per = [extras_mod.clear_behind(_layer_lines(r, l), art_w, art_h, ex, sig, lay.pen.width_mm) for l in layers]
+    finish = extras_mod.finishing_lines(art_w, art_h, ex, sig)
+    _remember(_frame_plans, key, (per, finish), MAX_FRAME_PLANS)
+    return per, finish
+
+
+def _flip_sheet(req: PlanRequest, slots: list[tuple[int, int]], last_frame: int, marks_for_all: bool = True) -> list:
+    """One sheet: (slot, frame) pairs → (pen, lines) groups in area mm, page by page within each pen run."""
+    fb, lay, a = req.flipbook, req.layout, req.layout.area
+    cl = fbk.cells(fb, a.w, a.h)
+    layers = _visible_layers(req)
+    run_of, run_pens = _runs(layers)
+    runs: list[list] = [[] for _ in run_pens]
+    pos = touch_in_area(lay)
+
+    def add(k, lines):
+        nonlocal pos
+        lines = order_paths(lines, pos) if lines else []
+        if lines:
+            pos = tuple(lines[-1][-1])
+            runs[k] += lines
+
+    for slot, index in slots:
+        cell = cl[slot]
+        ax, ay, aw, ah = cell.art
+        per, finish = _page(req, aw, ah, index, signed=index == last_frame)
+        number, box = fbk.number_for(fb, cell, str(index + 1))
+        for li, lines in enumerate(per):
+            add(run_of[li], fbk.clear_box([l + [ax, ay] for l in lines], box))
+        add(0, [l + [ax, ay] for l in finish] + number)
+    marks = fbk.cells(fb, a.w, a.h) if marks_for_all else [cl[s] for s, _ in slots]
+    add(0, [m for c in marks for m in fbk.cut_marks(fb, c, a.w, a.h)])
+    return [(run_pens[k], lines) for k, lines in enumerate(runs) if lines]
+
+
+def _flip_job(req: PlanRequest, frames: list[int] | None = None) -> Composite:
+    """Every page of the flipbook, sheet after sheet."""
+    fb, lay = req.flipbook, req.layout
+    problem = fbk.check(fb, lay.area.w, lay.area.h)
+    if problem:
+        raise HTTPException(422, problem)
+    count = _video_count(req)
+    frames = fb.frames(count) if frames is None else frames
+    if not frames:
+        raise HTTPException(422, "There are no frames to plot. Check the frame range.")
+    groups, sheet_of = [], []
+    sheets = fbk.sheets(frames, fb.per_sheet)
+    for n, sheet in enumerate(sheets, 1):
+        for pen, lines in _flip_sheet(req, list(enumerate(sheet)), frames[-1]):
+            groups.append((pen, lines))
+            sheet_of.append(n)
+    flat = [l for _, ls in groups for l in ls]
+    start = touch_in_area(lay)
+    st = stats(flat, lay, start)
+    st["pens"] = len({pen for pen, _ in groups})
+    st["pen_changes"] = sum(1 for i in range(1, len(groups)) if groups[i][0] != groups[i - 1][0])
+    flip = {"frames": len(frames), "first": frames[0], "last": frames[-1], "sheets": len(sheets),
+            "per_sheet": fb.per_sheet, "count": count}
+    return Composite(layers=[], groups=groups, stats=st, sheets=sheet_of, flip=flip)
+
+
+def _flip_preview(req: PlanRequest) -> Composite:
+    """The editor's view: the frame being looked at, on its page of its sheet."""
+    fb, lay = req.flipbook, req.layout
+    problem = fbk.check(fb, lay.area.w, lay.area.h)
+    if problem:
+        raise HTTPException(422, problem)
+    count = _video_count(req)
+    frames = fb.frames(count)
+    index = max(0, min(fb.frame, count - 1))
+    slot = frames.index(index) % fb.per_sheet if index in frames else index % fb.per_sheet
+    groups = _flip_sheet(req, [(slot, index)], frames[-1] if frames else index)
+    flat = [l for _, ls in groups for l in ls]
+    st = stats(flat, lay, touch_in_area(lay))
+    st["pens"] = len({pen for pen, _ in groups})
+    st["pen_changes"] = max(0, len(groups) - 1)
+    n = len(frames)
+    sheets = -(-n // fb.per_sheet) if n else 0
+    flip = {"count": count, "frame": index, "slot": slot, "frames": n, "sheets": sheets, "per_sheet": fb.per_sheet,
+            "first": frames[0] if frames else 0, "last": frames[-1] if frames else 0,
+            "sheet": (frames.index(index) // fb.per_sheet + 1) if index in frames else None,
+            "minutes_per_page": st["minutes"],
+            "cells": [{"page": [round(v, 2) for v in c.page], "art": [round(v, 2) for v in c.art]}
+                      for c in fbk.cells(fb, lay.area.w, lay.area.h)]}
+    return Composite(layers=[], groups=groups, stats=st, flip=flip)
+
+
+def _is_flip(req: PlanRequest) -> bool:
+    return req.flipbook.enabled and _uses_video(req)
+
+
 def _screen() -> Screen:
     c = printer.load_config()
-    return Screen(progress=c.screen_progress, status=c.screen_status, claim_pause=c.claim_pause, claim_pen=c.claim_pen)
+    return Screen(progress=c.screen_progress, status=c.screen_status, claim_pause=c.claim_pause, claim_pen=c.claim_pen,
+                  claim_sheet=c.claim_sheet)
+
+
+def _job_comp(req: PlanRequest) -> Composite:
+    """Everything the job plots: the layers, or for a flipbook every page."""
+    if _is_flip(req):
+        return _flip_job(req)
+    return _compose(_at_frame(req, req.flipbook.frame))
 
 
 def _job_gcode(req: PlanRequest, title: str, comp: Composite | None = None) -> str:
-    comp = comp or _compose(req)
+    comp = comp or _job_comp(req)
     if not comp.groups:
         raise HTTPException(422, "Nothing to draw: every layer is hidden or empty.")
     groups = [(pen_label(pen), [req.layout.area_to_pen(l) for l in lines]) for pen, lines in comp.groups]
-    return compile_groups(req.layout, groups, title, screen=_screen())
+    return compile_groups(req.layout, groups, title, screen=_screen(), sheets=comp.sheets,
+                          check_each_sheet=req.flipbook.check_each_sheet)
 
 
 def _preview_picture(req: PlanRequest):
     """The first visible full-area picture layer's tone (what gets plotted), for thumbnails."""
+    if _is_flip(req):
+        return None  # many pages per sheet: the plot alone reads better
+    req = _at_frame(req, req.flipbook.frame)
     layers = req.layers or [Layer(effect=req.effect, prep=req.prep, image_id=req.image_id)]
     a = req.layout.area
     for layer in layers:
-        src = _images.get(layer.image_id) if layer.image_id else None
+        src = _source(layer.image_id) if layer.image_id else None
         if layer.visible and isinstance(src, RasterSource) and layer.place.is_full:
             mask = masking.full_mask(src.state, src.gray.shape) if src.state.mask is not None else None
             return prepare(src.gray, a.w, a.h, layer.prep.model_copy(update={"px_per_mm": 3.0}), mask=mask).data
@@ -219,16 +424,20 @@ def _project_file(req: PlanRequest, text: str, title: str, comp: Composite | Non
         data = tpl.read_bytes()
         return package.package(text, data), package.inspect_template(data)["param"]
     lay = req.layout
-    groups_area = [(PENS.get(p, PENS[1])[2], lines) for p, lines in (comp.groups if comp else [])]
+    all_groups = comp.groups if comp else []
+    # The thumbnail shows the first sheet; the time covers every sheet.
+    first_sheet = [g for i, g in enumerate(all_groups) if not comp.sheets or comp.sheets[i] == 1]
+    groups_area = [(PENS.get(p, PENS[1])[2], lines) for p, lines in first_sheet]
     groups_pen = [(c, [lay.area_to_pen(l) for l in lines]) for c, lines in groups_area]
+    every_pen = [(pen_label(p), [lay.area_to_pen(l) for l in lines]) for p, lines in all_groups]
     pts = [lay.to_nozzle(np.vstack(ls)) for _, ls in groups_pen if ls] or [lay.to_nozzle(lay.area.poly())]
     allp = np.vstack(pts)
     (x0, y0), (x1, y1) = allp.min(axis=0), allp.max(axis=0)
     info = package.ProjectInfo(
         title=title, printer_model_id=(lay.bed.model_id or ("N1",))[0], nozzle=0.4, bed_w=lay.bed.w, bed_h=lay.bed.h,
-        seconds=job_seconds(lay, [(c, ls) for c, ls in groups_pen], _screen()) if comp else 120.0,
+        seconds=job_seconds(lay, every_pen, _screen(), comp.sheets) if comp else 120.0,
         pauses=text.count("M400 U1"), bbox=(float(x0), float(y0), float(x1), float(y1)),
-        colors=list(dict.fromkeys(c for c, _ in groups_area)) or [PENS[1][2]])
+        colors=list(dict.fromkeys(PENS.get(p, PENS[1])[2] for p, _ in all_groups)) or [PENS[1][2]])
     picture = _preview_picture(req) if comp else None
     thumbs = thumbs_mod.thumbnails(groups_area, groups_pen, lay, picture, cfg.thumbnail)
     base = package.template_settings(tpl.read_bytes()) if tpl.exists() else None
@@ -250,7 +459,7 @@ def index():
 
 @app.get("/api/version")
 def version():
-    return {"version": __version__, "features": ["rotation", "printer", "vector", "selection", "ai", "projects", "layers"]}
+    return {"version": __version__, "features": ["rotation", "printer", "vector", "selection", "ai", "projects", "layers", "flipbook"]}
 
 
 @app.get("/api/effects")
@@ -264,6 +473,7 @@ def defaults():
     layout = Layout(pen=m.pen, z=m.z, feed=m.feed, bed=m.bed)  # new projects start with this printer's settings
     return {"layout": layout.model_dump(), "prep": Prep().model_dump(), "machine": m.model_dump(),
             "extras": extras_mod.Extras().model_dump(),
+            "flipbook": Flipbook().model_dump(), "extract": video.Extract().model_dump(),
             "printers": [{"key": k, "label": v[0], "w": v[1], "h": v[2]} for k, v in PRINTERS.items()],
             "pens": [{"pen": n, "label": lab, "colour": col, "color": hx} for n, (lab, col, hx) in PENS.items()],
             "screen_messages": [{"code": k, "label": v} for k, v in SCREEN_MESSAGES.items()],
@@ -394,7 +604,18 @@ def edit_mask(image_id: str, body: MaskOp):
 
 @app.post("/api/plan")
 def plan(req: PlanRequest):
-    comp = _compose(req)
+    if _is_flip(req):
+        comp = _flip_preview(req)
+        return {
+            "lines": _rounded([l for _, ls in comp.groups for l in ls]),
+            "layers": [],
+            "groups": [{"pen": pen, "label": pen_label(pen), "color": PENS.get(pen, PENS[1])[2], "lines": _rounded(lines)}
+                       for pen, lines in comp.groups],
+            "stats": comp.stats,
+            "flipbook": comp.flip,
+            "checks": [asdict(c) for c in req.layout.checks()],
+        }
+    comp = _compose(_at_frame(req, req.flipbook.frame))
     return {
         "lines": _rounded([l for _, ls in comp.groups for l in ls]),
         "layers": [{"id": lid, "pen": pen, "color": PENS.get(pen, PENS[1])[2], "lines": _rounded(lines)}
@@ -406,6 +627,32 @@ def plan(req: PlanRequest):
     }
 
 
+class FrameRequest(PlanRequest):
+    index: int = Field(0, ge=0)
+
+
+@app.post("/api/flipbook/frame")
+def flipbook_frame(req: FrameRequest):
+    """One flipbook page on its own (page-art mm), for the flip preview. Also readies it for the job."""
+    fb, a = req.flipbook, req.layout.area
+    problem = fbk.check(fb, a.w, a.h)
+    if problem:
+        raise HTTPException(422, problem)
+    count = _video_count(req)
+    frames = fb.frames(count)
+    cell = fbk.cells(fb, a.w, a.h)[0]
+    _, _, aw, ah = cell.art
+    per, finish = _page(req, aw, ah, min(req.index, count - 1), signed=bool(frames) and req.index == frames[-1])
+    run_of, run_pens = _runs(_visible_layers(req))
+    groups: dict[int, list] = {}
+    for li, lines in enumerate(per):
+        groups.setdefault(run_of[li], []).extend(lines)
+    groups.setdefault(0, []).extend(finish)
+    return {"index": req.index, "w": round(aw, 2), "h": round(ah, 2),
+            "groups": [{"pen": run_pens[k], "color": PENS.get(run_pens[k], PENS[1])[2], "lines": _rounded(ls)}
+                       for k, ls in sorted(groups.items()) if ls]}
+
+
 @app.get("/api/pens")
 def pens():
     return [{"pen": n, "label": label, "colour": colour, "color": hexcol} for n, (label, colour, hexcol) in PENS.items()]
@@ -414,7 +661,7 @@ def pens():
 @app.post("/api/gcode", response_class=PlainTextResponse)
 def gcode(req: PlanRequest):
     try:
-        text = _job_gcode(req, title=req.effect if not req.layers else f"{len(req.layers)} layers")
+        text = _job_gcode(req, title="flipbook" if _is_flip(req) else req.effect if not req.layers else f"{len(req.layers)} layers")
     except (UnsafeLayout, GcodeSafetyError) as err:
         _refuse(err)
     return PlainTextResponse(text, headers={"Content-Disposition": f'attachment; filename="bambuplot-{req.effect}.gcode"'})
@@ -445,6 +692,7 @@ class PrinterSettings(BaseModel):
     screen_status: bool = True
     claim_pause: int | None = None
     claim_pen: int | None = 4
+    claim_sheet: int | None = 16
 
 
 class SendRequest(PlanRequest):
@@ -471,6 +719,7 @@ def save_printer_settings(body: PrinterSettings):
     cfg.screen_progress, cfg.screen_status = body.screen_progress, body.screen_status
     cfg.claim_pause = body.claim_pause if body.claim_pause in SCREEN_MESSAGES else None
     cfg.claim_pen = body.claim_pen if body.claim_pen in SCREEN_MESSAGES else None
+    cfg.claim_sheet = body.claim_sheet if body.claim_sheet in SCREEN_MESSAGES else None
     if body.access_code is not None:
         cfg.access_code = body.access_code.strip()
     printer.save_config(cfg)
@@ -516,8 +765,10 @@ def _job_text(req: SendRequest) -> tuple[str, str, Composite | None]:
         elif req.kind == "align":
             text, stem = alignment_test(lay), "bambuplot-alignment"
         else:
-            comp = _compose(req)
-            text, stem = _job_gcode(req, title=req.effect, comp=comp), f"bambuplot-{req.effect}"
+            comp = _job_comp(req)
+            flip = _is_flip(req)
+            text = _job_gcode(req, title="flipbook" if flip else req.effect, comp=comp)
+            stem = "bambuplot-flipbook" if flip else f"bambuplot-{req.effect}"
     except (UnsafeLayout, GcodeSafetyError, ValueError) as err:
         _refuse(err)
     return text, stem, comp
@@ -578,6 +829,7 @@ class ProjectState(BaseModel):
     extras: extras_mod.Extras = Field(default_factory=extras_mod.Extras)
     layers: list[Layer] = Field(default_factory=list)
     active: int = 0  # the layer the inspector edits
+    flipbook: Flipbook = Field(default_factory=Flipbook)
 
 
 class ProjectSave(BaseModel):
@@ -623,7 +875,7 @@ def open_project(pid: str):
             images[iid] = image
         if warnings:
             p["warning"] = " ".join(warnings)
-        return {**p, "images": images, "image": next(iter(images.values()), None)}
+        return {**p, "images": images, "image": next(iter(images.values()), None), "video": video.describe(pid)}
     except proj.ProjectError as err:
         _project_error(err)
 
@@ -632,7 +884,8 @@ def open_project(pid: str):
 def save_project(pid: str, body: ProjectSave):
     try:
         st = body.state
-        refs = [l.image_id for l in st.layers if l.image_id] if st.layers else ([body.image_id] if body.image_id else [])
+        refs = [l.image_id for l in st.layers if l.image_id and l.image_id != video.SENTINEL] if st.layers else (
+            [body.image_id] if body.image_id else [])
         items = {}
         for iid in refs:
             src = _images.get(iid)
@@ -645,14 +898,16 @@ def save_project(pid: str, body: ProjectSave):
         summary = proj.save_state(pid, st.model_dump(), body.name)
         try:  # the dashboard thumbnail is a small drawing of the current plot
             # Saved layers keep settings for every effect they've used; the plan needs this effect's.
+            has_video = video.describe(pid) is not None
+            keep = lambda iid: iid if iid in _images or (iid == video.SENTINEL and has_video) else None  # noqa: E731
             layers = [l.model_copy(update={
-                "image_id": l.image_id if l.image_id in _images else None,
+                "image_id": keep(l.image_id),
                 "params": l.params.get(l.effect, {}) if isinstance(l.params.get(l.effect), dict) else l.params,
             }) for l in st.layers]
             req = PlanRequest(layout=st.layout, effect=st.effect, params=st.params.get(st.effect, {}), prep=st.prep,
-                              image_id=body.image_id if body.image_id in _images else None,
-                              extras=st.extras, layers=layers)
-            comp = _compose(req)
+                              image_id=keep(body.image_id), extras=st.extras, layers=layers, project=pid,
+                              flipbook=st.flipbook)
+            comp = _flip_preview(req) if _is_flip(req) else _compose(_at_frame(req, st.flipbook.frame))
             flat = [l for _, ls in comp.groups for l in ls]
             proj.render_thumb(pid, flat, st.layout.area.w, st.layout.area.h, st.layout.pen.width_mm)
             summary["has_thumb"] = True
@@ -724,6 +979,75 @@ def project_source(pid: str):
     if first is None:
         raise HTTPException(404, "This project has no picture.")
     return project_source_file(pid, first)
+
+
+# ------------------------------------------------------------------ project video (flipbooks)
+
+
+def _video_error(err: Exception):
+    raise HTTPException(404 if isinstance(err, proj.ProjectError) else 422, str(err))
+
+
+@app.post("/api/projects/{pid}/video")
+async def upload_video(pid: str, file: UploadFile = File(...)):
+    """Keep a video in the project and take its first frames."""
+    try:
+        d = proj._dir(pid)
+    except proj.ProjectError as err:
+        _project_error(err)
+    name = file.filename or "video.mp4"
+    if not video.is_video_name(name):
+        raise HTTPException(422, "Choose a video file: MP4, MOV, M4V, WebM, AVI, MKV or GIF.")
+    tmp = d / "video-upload.tmp"
+    size = 0
+    try:
+        with tmp.open("wb") as out:
+            while chunk := await file.read(1 << 20):
+                size += len(chunk)
+                if size > MAX_VIDEO:
+                    raise HTTPException(413, "Videos must be under 1 GB. Trim it first.")
+                out.write(chunk)
+        return video.save_upload(pid, tmp, name)
+    except video.VideoError as err:
+        _video_error(err)
+    finally:
+        tmp.unlink(missing_ok=True)
+
+
+@app.get("/api/projects/{pid}/video")
+def get_video(pid: str):
+    try:
+        return video.describe(pid)
+    except proj.ProjectError as err:
+        _project_error(err)
+
+
+@app.post("/api/projects/{pid}/video/extract")
+def extract_video(pid: str, body: video.Extract):
+    """Take frames again: another range or rate."""
+    try:
+        return video.extract(pid, body)
+    except (video.VideoError, proj.ProjectError) as err:
+        _video_error(err)
+
+
+@app.delete("/api/projects/{pid}/video")
+def delete_video(pid: str):
+    try:
+        proj._dir(pid)
+    except proj.ProjectError as err:
+        _project_error(err)
+    video.remove(pid)
+    return {"ok": True}
+
+
+@app.get("/api/projects/{pid}/video/frames/{index}.jpg")
+def video_frame(pid: str, index: int):
+    try:
+        path = video.frame_path(pid, index)
+    except (video.VideoError, proj.ProjectError) as err:
+        _video_error(err)
+    return FileResponse(path, media_type="image/jpeg", headers={"Cache-Control": "max-age=3600"})
 
 
 class AlignmentBody(BaseModel):

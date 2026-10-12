@@ -61,6 +61,7 @@ class PrinterConfig(BaseModel):
     screen_status: bool = True
     claim_pause: int | None = None
     claim_pen: int | None = 4
+    claim_sheet: int | None = 16
 
     def code(self) -> str:
         return os.environ.get(ACCESS_ENV) or self.access_code
@@ -88,6 +89,7 @@ class PrinterConfig(BaseModel):
             "screen_status": self.screen_status,
             "claim_pause": self.claim_pause,
             "claim_pen": self.claim_pen,
+            "claim_sheet": self.claim_sheet,
         }
 
 

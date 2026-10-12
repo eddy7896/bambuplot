@@ -21,6 +21,20 @@ function newLayer(over={}){
   return {id:newLayerId(),name:'',visible:true,effect:'waves',params:{},prep:deepMerge(DEF.prep,null),image:null,
           place:{...FULL_PLACE},pen:1,lastRaster:null,...over};
 }
+/* Video frames and flipbooks. Layers that use the project's video share one picture object whose
+   id is "video"; the server swaps in the frame being looked at (or every frame, for a flipbook). */
+const FLIP={pid:null,video:null,fb:null,ex:null,info:null,vimg:null,pages:new Map()};
+const VIDEO_ID='video';
+const frameURL=i=>`/api/projects/${FLIP.pid}/video/frames/${i}.jpg?v=${FLIP.video?.version||0}`;
+const curFrame=()=>Math.max(0,Math.min(FLIP.fb?.frame||0,(FLIP.video?.count||1)-1));
+const usesVideo=()=>LAYERS.list.some(l=>l.visible&&l.image?.video);
+const flipOn=()=>!!(FLIP.video&&FLIP.fb?.enabled&&usesVideo());
+function videoImage(){
+  const v=FLIP.video;if(!v)return null;
+  if(!FLIP.vimg)FLIP.vimg={id:VIDEO_ID,kind:'raster',video:true,warnings:[],sel:null};
+  Object.assign(FLIP.vimg,{w:v.width,h:v.height,name:v.name,url:frameURL(curFrame())});
+  return FLIP.vimg;
+}
 let plan=null, checks=[], sel='area', drag=null, V=null, snap=true;
 let drawing=null, showDims=true; // draw-on-plate tool state; edge dimensions on/off
 let lineStr=[], travelStr=[], totalPts=0, planSeq=0;
@@ -85,7 +99,7 @@ function save(){
   clearTimeout(saveT);saveT=setTimeout(saveNow,900);
 }
 const projectBody=()=>({name:$('projName').value,state:{layout:L,effect:job.effect,params:job.params,prep:job.prep,aiModel:job.aiModel,extras:job.extras,
-  layers:LAYERS.list.map(l=>({...layerBody(l),params:l.params})),active:LAYERS.active},image_id:job.image?.id||null});
+  layers:LAYERS.list.map(l=>({...layerBody(l),params:l.params})),active:LAYERS.active,flipbook:FLIP.fb},image_id:job.image?.video?null:job.image?.id||null});
 async function saveNow(){
   clearTimeout(saveT);
   if(!currentProject||!dirty)return;
@@ -107,7 +121,7 @@ const post=(url,body)=>fetch(url,{method:'POST',headers:{'Content-Type':'applica
 const layerBody=l=>({id:l.id,name:l.name,visible:l.visible,effect:l.effect,params:l.params[l.effect]||{},prep:l.prep,
   image_id:l.image?.id||null,place:l.place,pen:l.pen});
 const planBody=()=>({layout:L,effect:job.effect,params:job.params[job.effect]||{},prep:job.prep,image_id:job.image?.id||null,
-  extras:job.extras,layers:LAYERS.list.map(layerBody)});
+  extras:job.extras,layers:LAYERS.list.map(layerBody),project:FLIP.pid,flipbook:FLIP.fb||undefined});
 function setStatus(t,err){const s=$('status');s.textContent=t;s.classList.toggle('err',!!err)}
 
 let planT=0;
@@ -117,13 +131,21 @@ async function runPlan(){
   try{
     const r=await post('/api/plan',planBody());
     if(seq!==planSeq)return;
-    if(r.status===404&&LAYERS.list.some(l=>l.image)){for(const l of LAYERS.list)l.image=null;renderThumb();buildEffects();renderLayers();setStatus('The server lost the pictures (it was restarted). Choose them again.',true);schedulePlan(0);return}
-    if(!r.ok)throw new Error((await r.json().catch(()=>({}))).detail||r.statusText);
+    if(!r.ok){
+      const detail=(await r.json().catch(()=>({}))).detail||r.statusText;
+      if(r.status===404&&/no longer loaded/.test(detail)&&LAYERS.list.some(l=>l.image&&!l.image.video)){
+        for(const l of LAYERS.list)if(!l.image?.video)l.image=null;
+        renderThumb();buildEffects();renderLayers();setStatus('The server lost the pictures (it was restarted). Choose them again.',true);schedulePlan(0);return;
+      }
+      throw new Error(typeof detail==='string'?detail:'the server refused it');
+    }
     const d=await r.json();if(seq!==planSeq)return;
     plan={groups:d.groups||[{color:'#1d1d1f',lines:d.lines}],stats:d.stats,w:L.area.w,h:L.area.h};checks=d.checks;
-    buildInk();renderChecks();renderOver();renderStats();
-    const visible=LAYERS.list.filter(l=>l.visible).length;
-    setStatus(`${visible>1?`${visible} layers`:job.effect} · ${d.stats.points.toLocaleString()} points${d.stats.pens>1?` · ${d.stats.pens} pens`:''}`);
+    FLIP.info=d.flipbook||null;
+    buildInk();renderFlipCells();renderChecks();renderOver();renderStats();if(FLIP.video)renderFlip();
+    const visible=LAYERS.list.filter(l=>l.visible).length,fi=FLIP.info;
+    if(fi)setStatus(`Flipbook · frame ${fi.frame+1} of ${fi.count}${fi.sheet?` · sheet ${fi.sheet} of ${fi.sheets}, page ${fi.slot+1}`:' · not in the frames to plot'} · ${fi.frames} frame${fi.frames===1?'':'s'} on ${fi.sheets} sheet${fi.sheets===1?'':'s'}`);
+    else setStatus(`${visible>1?`${visible} layers`:job.effect} · ${d.stats.points.toLocaleString()} points${d.stats.pens>1?` · ${d.stats.pens} pens`:''}`);
   }catch(e){if(seq===planSeq)setStatus('Preview failed: '+e.message,true)}
   finally{if(seq===planSeq)$('inkg').classList.remove('stale')}
 }
@@ -257,7 +279,10 @@ function placeInk(){
   const a=areaBox(),g=$('inkg'),pw=plan?.w||a.w,ph=plan?.h||a.h,[cx,cy]=centerOf(a);
   g.setAttribute('transform',`translate(${X(cx)} ${Y(cy)}) rotate(${-a.rot}) scale(${a.w/pw} ${a.h/ph}) translate(${-pw/2} ${-ph/2})`);
   const c=$('inkClipRect');c.setAttribute('width',pw);c.setAttribute('height',ph);
-  const pl=act()?.place||FULL_PLACE,fw=pl.w*pw,fh=pl.h*ph,fx=pl.x*pw,fy=ph-(pl.y+pl.h)*ph;
+  // Flipbooks: the picture sits on the page being looked at.
+  const fc=flipOn()&&FLIP.info?.cells?FLIP.info.cells[FLIP.info.slot]:null;
+  const [bx,by,bw,bh]=fc?fc.art:[0,0,pw,ph];
+  const pl=act()?.place||FULL_PLACE,fw=pl.w*bw,fh=pl.h*bh,fx=bx+pl.x*bw,fy=ph-(by+(pl.y+pl.h)*bh);
   $('srcframe').setAttribute('transform',`translate(${fx} ${fy}) rotate(${-(pl.rotation||0)} ${fw/2} ${fh/2})`);
   const lf=$('layerframe');lf.setAttribute('width',fw);lf.setAttribute('height',fh);
   lf.setAttribute('visibility',isFullPlace(pl)?'hidden':'visible');
@@ -307,8 +332,12 @@ function renderChecks(){
 function renderStats(){
   const s=plan?.stats;if(!s)return;
   $('nInk').textContent=`${s.draw_m} m`;$('nLifts').textContent=s.pen_lifts.toLocaleString();
-  $('nTravel').textContent=`${s.travel_m} m`;$('nTime').textContent=s.minutes<60?`${Math.max(1,Math.round(s.minutes))} min`:`${Math.floor(s.minutes/60)} h ${Math.round(s.minutes%60)} m`;
+  $('nTravel').textContent=`${s.travel_m} m`;
+  const fi=FLIP.info,mins=fi?fi.minutes_per_page*fi.frames:s.minutes;
+  $('nTime').textContent=(fi?'≈ ':'')+fmtMinutes(mins);
+  $('nTime').parentElement.title=fi?`About ${fmtMinutes(fi.minutes_per_page)} a page × ${fi.frames} pages, plus your time at each pause`:'Estimate; ignores acceleration';
 }
+const fmtMinutes=m=>m<60?`${Math.max(1,Math.round(m))} min`:`${Math.floor(m/60)} h ${Math.round(m%60)} m`;
 function render(){if(!drag)computeView();renderUnder();renderOver();placeInk();syncInputs();syncExtras();fillAll()}
 
 /* ---------- inputs ---------- */
@@ -480,19 +509,21 @@ function renderThumb(){
   $('viewImg').closest('.srow').hidden=!im;$('viewImgOpRow').hidden=!im||!VIEW.img;if(currentProject)setDocState(`${dirty?'Edited':'Saved'} · ${docInfo()}`);
   if(!im){t.innerHTML='<label class="drop" for="file">Drop a PNG, JPG or SVG here, or click to choose.<br>The preview uses a sample sphere until then.</label>';$('srcimg').setAttribute('href','');}
   else{
-    const info=im.kind==='svg'
+    const info=im.video?`Video · ${FLIP.video?.count||0} frames · ${im.w} × ${im.h} px`:im.kind==='svg'
       ?`SVG · ${im.strokes} line${im.strokes===1?'':'s'}, ${im.fills} filled shape${im.fills===1?'':'s'} · ${im.w} × ${im.h} mm`
       :`${im.w} × ${im.h} px`;
     t.innerHTML=`<img src="${im.url}" alt=""><span>${esc(im.name)}<br><small>${info}</small></span><button class="btn small" type="button" id="clearSrc">Remove</button>`;
     $('srcimg').setAttribute('href',im.url);
-    $('clearSrc').onclick=()=>{URL.revokeObjectURL(im.url);job.image=null;job.prep.crop=null;$('file').value='';renderThumb();buildEffects();save();schedulePlan(0)};
+    $('clearSrc').onclick=()=>{if(!im.video)URL.revokeObjectURL(im.url);job.image=null;job.prep.crop=null;$('file').value='';renderThumb();buildEffects();renderLayers();renderFlip();save();schedulePlan(0)};
   }
-  $('selBox').hidden=im?.kind!=='raster';renderCropInfo();
+  $('selBox').hidden=im?.kind!=='raster';$('selBox').classList.toggle('video',!!im?.video);renderCropInfo();
   if(im?.kind==='raster'){$('selInfo').textContent=selText(im.sel);$('selOpts').hidden=!im.sel?.has_mask;if(im.sel?.has_mask)$('srcimg').setAttribute('href',im.sel.preview)}
   placeInk();syncInputs();
 }
 $('file').onchange=e=>{const f=e.target.files[0];if(f)openFile(f)};
+const isVideoFile=f=>/^video\//.test(f.type)||/\.(mp4|mov|m4v|webm|avi|mkv|gif)$/i.test(f.name);
 async function openFile(f){
+  if(isVideoFile(f))return openVideo(f);
   setStatus('Reading file…');
   const fd=new FormData();fd.append('file',f);
   try{
@@ -515,10 +546,14 @@ $('importLayout').onchange=async e=>{
 
 /* downloads */
 for(const id of ['dlG','dl3mf','dlSmoke','dlPress','dlAlign'])$(id).addEventListener('click',()=>$('dlMenu').hidePopover?.());
-$('dlG').onclick=()=>download('/api/gcode',planBody(),`bambuplot-${job.effect}.gcode`);
+$('dlG').onclick=async()=>{
+  if(!await flipReady(setStatus))return;
+  download('/api/gcode',planBody(),flipOn()?'bambuplot-flipbook.gcode':`bambuplot-${job.effect}.gcode`);
+};
 const jobTitle=()=>$('projName').value||'BambuPlot plot';
 $('dl3mf').onclick=async()=>{
   $('problems').hidden=true;
+  if(!await flipReady(setStatus))return;
   try{
     const r=await post('/api/package',{...planBody(),kind:'art',title:jobTitle()});
     if(!r.ok){const e=await r.json().catch(()=>({}));showProblems(r.status===404?'The server is out of date. Restart it.':e.detail);return}
@@ -620,7 +655,8 @@ function renderPrinter(c){
   $('pf-mode').value=c.project_file||'builtin';$('pf-thumb').value=c.thumbnail||'both';
   $('sc-progress').checked=c.screen_progress!==false;$('sc-status').checked=c.screen_status!==false;
   const opts='<option value="">No change</option>'+(DEF.screen_messages||[]).map(m=>`<option value="${m.code}">${esc(m.label)}</option>`).join('');
-  $('sc-pause').innerHTML=opts;$('sc-pen').innerHTML=opts;
+  $('sc-pause').innerHTML=opts;$('sc-pen').innerHTML=opts;$('sc-sheet').innerHTML=opts;
+  $('sc-sheet').value=c.claim_sheet==null?'':String(c.claim_sheet);
   $('sc-pause').value=c.claim_pause==null?'':String(c.claim_pause);$('sc-pen').value=c.claim_pen==null?'':String(c.claim_pen);
   syncProjectFileUI();
 }
@@ -633,7 +669,8 @@ async function savePrinter(){
   const code=$('pr-code').value.trim();
   const r=await post('/api/printer',{ip:$('pr-ip').value,serial:$('pr-serial').value,url_prefix:$('pr-url').value||'file:///sdcard/',access_code:code?code:null,
     project_file:$('pf-mode').value,thumbnail:$('pf-thumb').value,screen_progress:$('sc-progress').checked,screen_status:$('sc-status').checked,
-    claim_pause:$('sc-pause').value===''?null:+$('sc-pause').value,claim_pen:$('sc-pen').value===''?null:+$('sc-pen').value});
+    claim_pause:$('sc-pause').value===''?null:+$('sc-pause').value,claim_pen:$('sc-pen').value===''?null:+$('sc-pen').value,
+    claim_sheet:$('sc-sheet').value===''?null:+$('sc-sheet').value});
   if(!r.ok){msg('pr-msg',r.status===404?'The server is out of date. Stop it (Ctrl+C) and run `uv run bambuplot serve` again.':'Could not save the settings.','err');return false}
   renderPrinter(await r.json());return true;
 }
@@ -643,7 +680,7 @@ function syncProjectFileUI(){
     :'BambuPlot writes the whole project file: the plot, a thumbnail, the printer model, the time estimate and the pause count. No slicer needed.';
   $('pf-thumb').closest('.srow').hidden=tpl;
 }
-for(const id of ['pf-mode','pf-thumb','sc-progress','sc-status','sc-pause','sc-pen'])$(id).addEventListener('input',async()=>{syncProjectFileUI();await savePrinter()});
+for(const id of ['pf-mode','pf-thumb','sc-progress','sc-status','sc-pause','sc-pen','sc-sheet'])$(id).addEventListener('input',async()=>{syncProjectFileUI();await savePrinter()});
 $('pr-save').onclick=async()=>{if(await savePrinter())msg('pr-msg','Saved.','ok')};
 $('pr-test').onclick=async()=>{
   if(!await savePrinter())return;msg('pr-msg','Connecting…');
@@ -662,6 +699,8 @@ $('tpl-remove').onclick=async()=>{await fetch('/api/printer/template',{method:'D
 $('sendOpen').onclick=()=>{
   if(isBad()){$('checksPop').showPopover?.();return}
   $('send-ack').checked=false;$('send-start').disabled=$('send-connect').disabled=true;msg('send-msg','');loadPrinter();
+  const step=$('sendSheetStep'),fi=FLIP.info;step.hidden=!(flipOn()&&fi&&fi.sheets>1);
+  if(!step.hidden)step.innerHTML=`<b>New sheet</b> ${fi.sheets-1} time${fi.sheets>2?'s':''}: the pen lifts high and the plate comes forward. Swap in the next sheet exactly where the last one was, then Resume. An L of tape on the plate at one corner makes this easy.`;
   $('sendSheet').showModal();
 };
 $('send-cancel').onclick=()=>$('sendSheet').close();
@@ -670,7 +709,9 @@ async function sendJob(start){
   const kind=$('send-kind').value;
   if(isBad()){msg('send-msg','Fix the failing safety checks first.','err');return}
   if(printerCfg&&(!printerCfg.ip||!printerCfg.has_access_code)){msg('send-msg','Add the printer IP and access code in the Printer tab first.','err');return}
-  $('send-upload').disabled=$('send-start').disabled=true;msg('send-msg',start?'Uploading and starting…':'Uploading…');
+  $('send-upload').disabled=$('send-start').disabled=true;
+  if(!await flipReady((t,err)=>msg('send-msg',t,err?'err':''))){$('send-upload').disabled=false;$('send-start').disabled=!$('send-ack').checked;return}
+  msg('send-msg',start?'Uploading and starting…':'Uploading…');
   try{
     const r=await post('/api/send',{...planBody(),kind,start,title:jobTitle()}),d=await r.json();
     if(!r.ok){msg('send-msg',errText(d.detail),'err');return}
@@ -683,7 +724,9 @@ async function sendJob(start){
 $('send-upload').onclick=()=>sendJob(false);
 $('send-connect').onclick=async()=>{
   if(isBad()){msg('send-msg','Fix the failing safety checks first.','err');return}
-  $('send-connect').disabled=true;msg('send-msg','Packaging for Bambu Connect…');
+  $('send-connect').disabled=true;
+  if(!await flipReady((t,err)=>msg('send-msg',t,err?'err':''))){$('send-connect').disabled=!$('send-ack').checked;return}
+  msg('send-msg','Packaging for Bambu Connect…');
   try{
     const r=await post('/api/connect',{...planBody(),kind:$('send-kind').value,title:jobTitle()}),d=await r.json();
     if(!r.ok){msg('send-msg',errText(d.detail),'err');return}
@@ -752,6 +795,8 @@ function drawOverlay(){
 function openEditor(tool){
   if(!job.image||job.image.kind!=='raster')return;
   ED.crop=job.prep.crop?[...job.prep.crop]:[0,0,1,1];
+  $('editor').classList.toggle('video',!!job.image.video);
+  if(job.image.video)tool='crop'; // a crop applies to every frame; selections don't
   if(tool)setTool(tool);
   $('editor').showModal();
   const im=new Image();im.onload=()=>{ED.img=im;layoutEd();applySel(job.image.sel)};im.src=job.image.url;
@@ -1001,7 +1046,7 @@ $('sigFile').onchange=async e=>{
 const isFullPlace=p=>!p||(Math.abs(p.x)<1e-9&&Math.abs(p.y)<1e-9&&Math.abs(p.w-1)<1e-9&&Math.abs(p.h-1)<1e-9&&!p.rotation);
 const penInfo=n=>(DEF.pens||[]).find(p=>p.pen===n)||{pen:n,label:`Pen ${n}`,colour:'',color:'#1d1d1f'};
 function layerTitle(l){return l.name||effects.find(e=>e.name===l.effect)?.label||l.effect}
-function layerSub(l){return `${l.image?l.image.name:'Sample picture'} · ${penInfo(l.pen).label}`}
+function layerSub(l){return `${l.image?(l.image.video?`${l.image.name} (video)`:l.image.name):'Sample picture'} · ${penInfo(l.pen).label}`}
 const EYE_ON='<svg viewBox="0 0 20 20"><path d="M2 10s3-5.5 8-5.5S18 10 18 10s-3 5.5-8 5.5S2 10 2 10Z"/><circle cx="10" cy="10" r="2.4"/></svg>';
 const EYE_OFF='<svg viewBox="0 0 20 20"><path d="M3 3l14 14M7.5 5.2A8 8 0 0 1 10 4.5c5 0 8 5.5 8 5.5a14 14 0 0 1-2.4 3M12.5 14.8a8 8 0 0 1-2.5.7c-5 0-8-5.5-8-5.5a14 14 0 0 1 2.4-3"/></svg>';
 function renderLayers(){
@@ -1015,7 +1060,7 @@ function renderLayers(){
       <span class="txt"><b>${esc(layerTitle(l))}</b><span class="sub" title="${order.has(i)?`Plotted ${order.get(i)} of ${n}`:'Hidden: not plotted'}">${step(i)}${esc(layerSub(l))}</span></span>
       <button class="more" type="button" data-more="${i}" aria-label="Layer actions" aria-haspopup="menu">⋯</button>
     </li>`).join('');
-  syncLayerSettings();
+  syncLayerSettings();if(FLIP.fb)renderFlip();
 }
 function selectLayer(i){
   LAYERS.active=i;renderLayers();buildEffects();renderThumb();syncInputs();placeInk();fillAll();
@@ -1084,6 +1129,220 @@ $('lyFull').addEventListener('input',()=>{
 for(const [id,k,f] of [['lyX','x',100],['lyY','y',100],['lyW','w',100],['lyH','h',100],['lyR','rotation',1]])$(id).addEventListener('input',()=>{
   const v=parseFloat($(id).value);if(!isFinite(v))return;if((k==='w'||k==='h')&&v<2)return;
   act().place[k]=k==='rotation'?normAng(v):v/f;placeInk();save();schedulePlan(300);
+});
+
+/* ---------- video & flipbook ---------- */
+async function openVideo(f){
+  if(!FLIP.pid){setStatus('Open a project first.',true);return}
+  setStatus(`Uploading ${f.name} (${(f.size/1048576).toFixed(1)} MB), then taking frames…`);
+  const fd=new FormData();fd.append('file',f);
+  try{
+    const r=await fetch(`/api/projects/${FLIP.pid}/video`,{method:'POST',body:fd}),d=await r.json().catch(()=>({}));
+    if(!r.ok)throw new Error(typeof d.detail==='string'?d.detail:r.status===404?'the server is out of date. Restart it.':r.statusText);
+    setVideo(d);Object.assign(FLIP.fb,{frame:0,first:0,last:null,enabled:true});
+    if(job.image&&!job.image.video&&job.image.url)URL.revokeObjectURL(job.image.url);
+    job.prep.crop=null;job.image=videoImage();
+    renderThumb();buildEffects();renderLayers();renderFlip();save();schedulePlan(0);
+    setStatus(`Took ${d.count} frames from ${d.name}. Scrub with the slider under the plate, or press , and .`);
+  }catch(err){setStatus('Video failed: '+err.message,true)}
+}
+/* New frames (or none): every layer on the video follows. */
+function setVideo(v){
+  FLIP.video=v;FLIP.pages.clear();FLIP.info=null;
+  if(v){
+    FLIP.ex=deepMerge(DEF.extract||{},v.extract);videoImage();
+    for(const l of LAYERS.list)if(l.image?.video)l.image=FLIP.vimg;
+    const n=v.count;FLIP.fb.frame=Math.min(FLIP.fb.frame,n-1);
+    if(FLIP.fb.first>n-1)FLIP.fb.first=0;if(FLIP.fb.last!=null&&FLIP.fb.last>n-1)FLIP.fb.last=null;
+  }else{for(const l of LAYERS.list)if(l.image?.video)l.image=null;FLIP.vimg=null}
+}
+function setFrame(i){
+  if(!FLIP.video)return;
+  i=Math.max(0,Math.min(i,FLIP.video.count-1));if(i===FLIP.fb.frame&&$('frSlider').value==i)return;
+  FLIP.fb.frame=i;const im=videoImage();
+  if(job.image?.video){$('srcimg').setAttribute('href',im.url);const t=$('thumb').querySelector('img');if(t)t.src=im.url}
+  syncScrubber();save();schedulePlan(120);
+}
+function syncScrubber(){
+  const v=FLIP.video,show=!!v&&usesVideo();
+  $('scrubber').hidden=!show;document.querySelector('.canvas').classList.toggle('has-video',show);
+  if(!show)return;
+  const i=curFrame(),t=v.times?.[i];
+  $('frSlider').max=v.count-1;if(document.activeElement!==$('frSlider'))$('frSlider').value=i;fillRange($('frSlider'));
+  const inRange=!FLIP.fb.enabled||(i>=FLIP.fb.first&&i<=(FLIP.fb.last??v.count-1));
+  $('frLabel').textContent=`Frame ${i+1} of ${v.count}${t!=null?` · ${t.toFixed(2)} s`:''}${inRange?'':' · skipped'}`;
+  $('frPlay').hidden=!flipOn();
+}
+$('frSlider').addEventListener('input',()=>setFrame(+$('frSlider').value));
+$('frPrev').onclick=()=>setFrame(curFrame()-1);
+$('frNext').onclick=()=>setFrame(curFrame()+1);
+$('frPlay').onclick=()=>openFlipPlayer();
+
+/* The panel: which frames to take, and how they become pages. */
+const FB_SWITCHES=['enabled','numbers','cut_marks','check_each_sheet'],FB_SLIDERS=['gap','binding','number_size'];
+function extractCount(){
+  const v=FLIP.video,e=FLIP.ex;if(!v||!e)return 0;
+  const end=Math.min(e.end??v.clip.duration,v.clip.duration),span=Math.max(0,end-Math.min(e.start,end));
+  return Math.max(1,Math.min(e.max_frames,Math.ceil(span*e.fps-1e-9)));
+}
+function frameRange(){
+  const n=FLIP.video?.count||0;if(!n)return [];
+  const last=Math.min(FLIP.fb.last??n-1,n-1),first=Math.min(FLIP.fb.first,last),out=[];
+  for(let i=first;i<=last;i++)out.push(i);return out;
+}
+function renderFlip(){
+  const v=FLIP.video,g=$('flipGroup');g.hidden=!v;syncScrubber();
+  if(!v)return;
+  const c=v.clip,e=FLIP.ex,fb=FLIP.fb;
+  $('vidInfo').textContent=`${v.name} · ${c.duration.toFixed(1)} s · ${c.width} × ${c.height} · ${Math.round(c.fps*10)/10} frames/s. ${v.count} frames taken${usesVideo()?'':'. Choose the video as a layer\'s picture to use them'}.`;
+  for(const [id,val] of [['vx-start',e.start],['vx-end',e.end??c.duration]])if(document.activeElement!==$(id))$(id).value=Math.round(val*10)/10;
+  $('vx-start').max=$('vx-end').max=c.duration;
+  $('vx-fps').max=Math.max(1,Math.round(c.fps));$('vx-fps').value=e.fps;$('vx-fps.out').textContent=`${e.fps}`;
+  $('vx-max').value=e.max_frames;$('vx-max.out').textContent=`${e.max_frames} frames`;
+  const want=extractCount(),same=JSON.stringify(e)===JSON.stringify(deepMerge(DEF.extract||{},v.extract));
+  $('vx-go').textContent=same?`Take Frames Again`:`Take ${want} Frames`;$('vx-go').disabled=same;
+  for(const k of FB_SWITCHES)$('fb-'+k).checked=!!fb[k];
+  for(const k of FB_SLIDERS){$('fb-'+k).value=fb[k];$(`fb-${k}.out`).textContent=fmtVal(fb[k],$('fb-'+k).step,'mm')}
+  const nums=n=>Array.from({length:8},(_,i)=>`<option value="${i+1}">${i+1}</option>`).join('');
+  if(!$('fb-cols').options.length){$('fb-cols').innerHTML=nums();$('fb-rows').innerHTML=nums()}
+  $('fb-cols').value=fb.cols;$('fb-rows').value=fb.rows;
+  $('fbOpts').hidden=!fb.enabled;$('fbNumSize').hidden=!fb.numbers;
+  for(const id of ['fb-first','fb-last']){$(id).max=v.count}
+  if(document.activeElement!==$('fb-first'))$('fb-first').value=fb.first+1;
+  if(document.activeElement!==$('fb-last'))$('fb-last').value=(fb.last??v.count-1)+1;
+  const per=fb.cols*fb.rows,a=L.area,inset=per>1?fb.gap:0,pw=a.w/fb.cols-inset,ph=a.h/fb.rows-inset;
+  $('fb-pageinfo').textContent=per===1?'One frame per sheet, filling the drawing area.'
+    :`${per} pages per sheet, each ${fmtSize(Math.max(0,pw),Math.max(0,ph))}${fb.binding?` (${fmtSize(Math.max(0,pw-fb.binding),Math.max(0,ph))} of picture)`:''}.`;
+  const fr=frameRange(),sheets=Math.ceil(fr.length/per),fi=FLIP.info;
+  $('fb-summary').textContent=`${fr.length} frame${fr.length===1?'':'s'} on ${sheets} sheet${sheets===1?'':'s'}${fi?`, about ${fmtMinutes(fi.minutes_per_page*fr.length)} of plotting`:''}.${sheets>1?` The printer pauses for each new sheet.`:''}`;
+  $('fb-preview').disabled=!flipOn();
+}
+for(const [id,k] of [['vx-start','start'],['vx-end','end']])$(id).addEventListener('input',()=>{
+  const v=parseFloat($(id).value);if(!isFinite(v)||v<0)return;FLIP.ex[k]=Math.min(v,FLIP.video.clip.duration);renderFlip();
+});
+$('vx-fps').addEventListener('input',()=>{FLIP.ex.fps=+$('vx-fps').value;renderFlip()});
+$('vx-max').addEventListener('input',()=>{FLIP.ex.max_frames=+$('vx-max').value;renderFlip()});
+$('vx-go').onclick=async()=>{
+  const e=FLIP.ex;if(e.end!=null&&e.end<=e.start){$('vx-msg').textContent='“To” must be after “From”.';return}
+  $('vx-go').disabled=true;$('vx-msg').textContent=`Taking ${extractCount()} frames…`;
+  try{
+    const r=await post(`/api/projects/${FLIP.pid}/video/extract`,{...e,end:e.end!=null&&e.end>=FLIP.video.clip.duration-0.05?null:e.end}),d=await r.json();
+    if(!r.ok)throw new Error(typeof d.detail==='string'?d.detail:'that didn’t work');
+    setVideo(d);$('vx-msg').textContent=`${d.count} frames ready.`;
+    renderThumb();renderFlip();save();schedulePlan(0);
+  }catch(err){$('vx-msg').textContent='Couldn’t take frames: '+err.message}
+  finally{renderFlip()}
+};
+let removeArmed=0;
+$('vx-remove').onclick=async()=>{
+  if(!removeArmed){$('vx-remove').textContent='Click Again to Remove';removeArmed=setTimeout(()=>{removeArmed=0;$('vx-remove').textContent='Remove Video'},3000);return}
+  clearTimeout(removeArmed);removeArmed=0;$('vx-remove').textContent='Remove Video';
+  await fetch(`/api/projects/${FLIP.pid}/video`,{method:'DELETE'});
+  setVideo(null);renderThumb();buildEffects();renderLayers();renderFlip();save();schedulePlan(0);setStatus('Video removed from the project.');
+};
+for(const k of FB_SWITCHES)$('fb-'+k).addEventListener('input',()=>{FLIP.fb[k]=$('fb-'+k).checked;flipChanged()});
+for(const k of FB_SLIDERS)$('fb-'+k).addEventListener('input',()=>{FLIP.fb[k]=+$('fb-'+k).value;flipChanged(350)});
+for(const k of ['cols','rows'])$('fb-'+k).addEventListener('input',()=>{FLIP.fb[k]=+$('fb-'+k).value;flipChanged()});
+$('fb-first').addEventListener('input',()=>{const v=parseInt($('fb-first').value);if(!(v>=1))return;FLIP.fb.first=Math.min(v,FLIP.video.count)-1;flipChanged()});
+$('fb-last').addEventListener('input',()=>{const v=parseInt($('fb-last').value);if(!(v>=1))return;const n=FLIP.video.count;FLIP.fb.last=v>=n?null:Math.max(v-1,FLIP.fb.first);flipChanged()});
+function flipChanged(delay=0){renderFlip();save();schedulePlan(delay);placeInk()}
+$('fb-preview').onclick=()=>openFlipPlayer();
+
+/* Page outlines on the plate, in drawing-area mm (y up), with the frame each page will get. */
+function renderFlipCells(){
+  const g=$('flipcells'),fi=FLIP.info;
+  if(!fi||!flipOn()){g.innerHTML='';placeInk();return}
+  const h=L.area.h,per=fi.per_sheet,start=fi.sheet?fi.first+(fi.sheet-1)*per:null;let out='';
+  fi.cells.forEach((c,k)=>{
+    const [x,y,w,ch]=c.page,[ax]=c.art,top=h-(y+ch);
+    if(per>1||ax>x)out+=`<rect class="fbcell${k===fi.slot?' cur':''}" x="${x}" y="${top}" width="${w}" height="${ch}"></rect>`;
+    if(ax>x)out+=`<rect class="fbstrip" x="${x}" y="${top}" width="${ax-x}" height="${ch}"></rect>`;
+    const n=start!=null&&start+k<=fi.last?start+k+1:null;
+    if(per>1&&k!==fi.slot&&n)out+=`<text class="fblbl" x="${ax+2}" y="${top+4.5}">${n}</text>`;
+  });
+  g.innerHTML=out;placeInk();
+}
+
+/* Before a flipbook job: draw every page (each is cached on the server), showing progress. */
+const pageKey=(body,i)=>JSON.stringify({...body,flipbook:{...body.flipbook,frame:0}})+'#'+i;
+async function loadPage(body,i){
+  const key=pageKey(body,i);if(FLIP.pages.has(key))return FLIP.pages.get(key);
+  const r=await post('/api/flipbook/frame',{...body,index:i});
+  if(!r.ok){const e=await r.json().catch(()=>({}));throw new Error(errText(e.detail))}
+  const d=await r.json();FLIP.pages.set(key,d);return d;
+}
+async function prepareFlipbook(say){
+  const fr=frameRange(),body=planBody();let done=0,next=0;
+  const worker=async()=>{while(next<fr.length){const i=fr[next++];await loadPage(body,i);done++;say(`Drawing the flipbook: frame ${done} of ${fr.length}…`)}};
+  await Promise.all([worker(),worker(),worker()]);
+  say(`Putting ${fr.length} frames into one job…`);
+}
+async function flipReady(say){
+  if(!flipOn())return true;
+  try{await prepareFlipbook(say);return true}catch(e){say('Flipbook failed: '+e.message,true);return false}
+}
+
+/* ---------- flipbook preview player ---------- */
+const PLAYER={frames:[],at:0,timer:0,body:null,img:new Map(),loading:false};
+function stopFlipPlayer(){clearInterval(PLAYER.timer);PLAYER.timer=0;$('flPlayIcon')?.setAttribute('d','M7 5v10l8-5z')}
+async function openFlipPlayer(){
+  if(!flipOn())return;
+  PLAYER.frames=frameRange();PLAYER.body=planBody();PLAYER.at=Math.max(0,PLAYER.frames.indexOf(curFrame()));
+  $('flFrame').max=PLAYER.frames.length-1;$('flFrame').value=PLAYER.at;
+  const fps=Math.round(FLIP.video.extract?.fps||12);$('flFps').value=Math.min(30,fps);$('flFps.out').textContent=`${$('flFps').value} frames/s`;
+  $('flipSheet').showModal();fillAll();drawPlayer();
+  PLAYER.loading=true;let done=0;const body=PLAYER.body;
+  try{
+    let next=0;
+    const worker=async()=>{while(next<PLAYER.frames.length&&$('flipSheet').open&&PLAYER.body===body){
+      const i=PLAYER.frames[next++];await loadPage(body,i);done++;
+      msg('flMsg',done<PLAYER.frames.length?`Drawing frames: ${done} of ${PLAYER.frames.length}…`:`All ${done} frames drawn.`);
+      if(i===PLAYER.frames[PLAYER.at])drawPlayer();
+    }};
+    await Promise.all([worker(),worker(),worker()]);
+  }catch(e){msg('flMsg','Preview failed: '+e.message,'err')}
+  PLAYER.loading=false;drawPlayer();
+}
+function playerImage(i){
+  if(PLAYER.img.has(frameURL(i)))return PLAYER.img.get(frameURL(i));
+  const im=new Image();im.onload=()=>{if(PLAYER.frames[PLAYER.at]===i)drawPlayer()};im.src=frameURL(i);PLAYER.img.set(frameURL(i),im);return im;
+}
+function drawPlayer(){
+  const i=PLAYER.frames[PLAYER.at];if(i==null)return;
+  const page=FLIP.pages.get(pageKey(PLAYER.body,i)),c=$('flipCanvas'),stage=c.parentElement.getBoundingClientRect();
+  const cell=FLIP.info?.cells?.[0]?.art,w=page?.w||cell?.[2]||L.area.w,h=page?.h||cell?.[3]||L.area.h;
+  const s=Math.min((stage.width-24)/w,(stage.height-24)/h),dpr=devicePixelRatio||1;
+  c.style.width=`${w*s}px`;c.style.height=`${h*s}px`;c.width=Math.round(w*s*dpr);c.height=Math.round(h*s*dpr);
+  const g=c.getContext('2d');g.setTransform(s*dpr,0,0,s*dpr,0,0);g.fillStyle='#fdfdfb';g.fillRect(0,0,w,h);
+  if($('flPic').checked){const im=playerImage(i);if(im.complete&&im.naturalWidth){
+    const k=Math.max(w/im.naturalWidth,h/im.naturalHeight),iw=im.naturalWidth*k,ih=im.naturalHeight*k;
+    g.globalAlpha=.3;g.drawImage(im,(w-iw)/2,(h-ih)/2,iw,ih);g.globalAlpha=1}}
+  if(page){
+    g.lineCap=g.lineJoin='round';g.lineWidth=L.pen.width_mm;
+    for(const grp of page.groups){g.strokeStyle=grp.color;g.beginPath();
+      for(const l of grp.lines){g.moveTo(l[0][0],h-l[0][1]);if(l.length===1)g.lineTo(l[0][0]+.01,h-l[0][1]);for(let k=1;k<l.length;k++)g.lineTo(l[k][0],h-l[k][1])}
+      g.stroke()}
+  }else{g.fillStyle='#8e8e93';g.font='4px -apple-system,sans-serif';g.textAlign='center';g.fillText('Drawing…',w/2,h/2)}
+  $('flLabel').textContent=`Frame ${i+1} · ${PLAYER.at+1} of ${PLAYER.frames.length}`;
+  if(document.activeElement!==$('flFrame'))$('flFrame').value=PLAYER.at;fillRange($('flFrame'));
+}
+function playerStep(){
+  if(!PLAYER.frames.length)return;
+  let n=(PLAYER.at+1)%PLAYER.frames.length;
+  // Don't run ahead of the frames still being drawn.
+  if(!FLIP.pages.has(pageKey(PLAYER.body,PLAYER.frames[n]))&&PLAYER.loading)return;
+  PLAYER.at=n;drawPlayer();
+}
+function startPlayer(){stopFlipPlayer();PLAYER.timer=setInterval(playerStep,1000/+$('flFps').value);$('flPlayIcon').setAttribute('d','M6 5h3v10H6zM11 5h3v10h-3z')}
+$('flPlay').onclick=()=>PLAYER.timer?stopFlipPlayer():startPlayer();
+$('flFrame').addEventListener('input',()=>{PLAYER.at=+$('flFrame').value;drawPlayer()});
+$('flFps').addEventListener('input',()=>{$('flFps.out').textContent=`${$('flFps').value} frames/s`;if(PLAYER.timer)startPlayer()});
+$('flPic').addEventListener('input',drawPlayer);
+$('flClose').onclick=()=>$('flipSheet').close();
+$('flipSheet').addEventListener('close',()=>{stopFlipPlayer();PLAYER.body=null});
+$('flipSheet').addEventListener('keydown',e=>{
+  if(e.key===' '){e.preventDefault();$('flPlay').click()}
+  else if(e.key==='ArrowRight'||e.key==='ArrowLeft'){e.preventDefault();stopFlipPlayer();PLAYER.at=(PLAYER.at+(e.key==='ArrowRight'?1:-1)+PLAYER.frames.length)%PLAYER.frames.length;drawPlayer()}
 });
 
 /* ---------- units ---------- */
@@ -1174,6 +1433,9 @@ for(const ev of ['dragenter','dragover'])document.addEventListener(ev,e=>{if([..
 for(const ev of ['dragleave','drop'])document.addEventListener(ev,()=>canvasEl.classList.remove('dropping'));
 document.addEventListener('drop',e=>{const f=e.dataTransfer?.files?.[0];if(f){e.preventDefault();openFile(f)}});
 document.addEventListener('keydown',e=>{
+  if((e.key===','||e.key==='.')&&!e.metaKey&&!e.ctrlKey&&FLIP.video&&usesVideo()&&!/^(INPUT|SELECT|TEXTAREA)$/.test(document.activeElement?.tagName||'')&&!document.querySelector('dialog[open]')){
+    e.preventDefault();setFrame(curFrame()+(e.key===','?-1:1));return;
+  }
   if(!(e.metaKey||e.ctrlKey)||$('editor').open||$('sendSheet').open||$('sigSheet').open||$('newSheet').open||!$('dashboard').hidden)return;
   const k=e.key.toLowerCase();
   if(k==='o'){e.preventDefault();$('file').click()}
@@ -1219,7 +1481,7 @@ async function newProject(state){
   const p=await r.json();location.hash=`#/p/${p.id}`;
 }
 function showDashboard(){
-  saveNow();currentProject=null;
+  saveNow();currentProject=null;stopFlipPlayer();
   document.querySelector('.app').hidden=true;$('dashboard').hidden=false;document.title='BambuPlot';
   loadProjects();
 }
@@ -1239,7 +1501,9 @@ async function openProject(pid){
   job.aiModel=typeof st.aiModel==='string'?st.aiModel:null;
   job.extras=deepMerge(DEF.extras||{},st.extras);
   for(const l of LAYERS.list)if(l.image?.url)URL.revokeObjectURL(l.image.url);
-  plan=null;$('inklayers').innerHTML='';$('travel').setAttribute('d','');
+  plan=null;$('inklayers').innerHTML='';$('travel').setAttribute('d','');$('flipcells').innerHTML='';
+  FLIP.pid=pid;FLIP.fb=deepMerge(DEF.flipbook||{},st.flipbook);FLIP.info=null;FLIP.pages.clear();FLIP.vimg=null;
+  FLIP.video=d.video||null;FLIP.ex=deepMerge(DEF.extract||{},FLIP.video?.extract);if(FLIP.video)videoImage();
   // Pictures: one shared object per image id, so layers on the same picture share its selection.
   const pics={};
   for(const [iid,im] of Object.entries(d.images||{})){
@@ -1251,7 +1515,7 @@ async function openProject(pid){
   const okEffect=e=>effects.some(x=>x.name===e)?e:'waves';
   if(Array.isArray(st.layers)&&st.layers.length){
     LAYERS.list=st.layers.map(l=>newLayer({id:l.id||newLayerId(),name:l.name||'',visible:l.visible!==false,effect:okEffect(l.effect),
-      params:(l.params&&typeof l.params==='object')?l.params:{},prep:deepMerge(DEF.prep,l.prep),image:l.image_id?pics[l.image_id]||null:null,
+      params:(l.params&&typeof l.params==='object')?l.params:{},prep:deepMerge(DEF.prep,l.prep),image:l.image_id===VIDEO_ID?videoImage():l.image_id?pics[l.image_id]||null:null,
       place:{...FULL_PLACE,...(l.place||{})},pen:l.pen||1}));
     LAYERS.active=Math.min(Math.max(0,st.active|0),LAYERS.list.length-1);
   }else{ // a project from before layers: one layer
@@ -1261,7 +1525,7 @@ async function openProject(pid){
   }
   $('projName').value=d.name;document.title=`${d.name} · BambuPlot`;
   document.querySelector('.app').hidden=false;$('dashboard').hidden=true;
-  buildEffects();render();renderThumb();renderLayers();refreshChecks();schedulePlan(0);loadAI();loadSignature();
+  buildEffects();render();renderThumb();renderLayers();renderFlip();refreshChecks();schedulePlan(0);loadAI();loadSignature();
   if(job.image?.sel?.has_mask)applySel(job.image.sel);
   selectTab(job.effect==='alignment'?'tab-setup':job.image||LAYERS.list.length>1?'tab-effect':'tab-picture');
   $('alignGroup').open=job.effect==='alignment';for(const id of ['alMeasL','alMeasF','alW','alH'])$(id).value='';$('alResult').hidden=true;
