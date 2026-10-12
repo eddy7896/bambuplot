@@ -116,7 +116,7 @@ def cmd_send(args):
     text = Path(args.gcode).read_text()
     min_z = min(layout.z.down, layout.z.touch - max(DEFAULT_PRESSES))
     res = printer.send_job(printer.load_config(), text, Path(args.gcode).stem, min_z=min_z,
-                           start=args.start, use_template=not args.plain)
+                           start=args.start, use_template=not args.plain, bed=(layout.bed.w, layout.bed.h))
     print(f"uploaded {res['file']} ({res['bytes']:,} bytes)")
     print("started — go to the printer for Pause 1" if res["started"] else "start it from the printer's screen")
 
@@ -124,7 +124,8 @@ def cmd_send(args):
 def cmd_connect(args):
     layout = _layout(args.layout)
     min_z = min(layout.z.down, layout.z.touch - max(DEFAULT_PRESSES))
-    res = printer.open_in_bambu_connect(Path(args.gcode).read_text(), Path(args.gcode).stem, min_z=min_z)
+    res = printer.open_in_bambu_connect(Path(args.gcode).read_text(), Path(args.gcode).stem, min_z=min_z,
+                                        bed=(layout.bed.w, layout.bed.h))
     print(f"saved {res['path']}")
     print("opened in Bambu Connect: send it to the printer there, then start it at the printer")
 

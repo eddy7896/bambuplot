@@ -19,7 +19,7 @@ class GcodeSafetyError(ValueError):
         super().__init__("Unsafe G-code:\n" + "\n".join(problems))
 
 
-def validate(text: str, min_z: float) -> list[str]:
+def validate(text: str, min_z: float, bed_w: float = BED_W, bed_h: float = BED_H) -> list[str]:
     """Return a list of problems; empty means the program is safe to run."""
     problems: list[str] = []
     homed = absolute = False
@@ -47,9 +47,9 @@ def validate(text: str, min_z: float) -> list[str]:
         elif cmd in ("G0", "G1"):
             if not (homed and absolute):
                 problems.append(f"line {n}: move before G28 and G90")
-            if "X" in params and not (-EPS <= params["X"] <= BED_W + EPS):
+            if "X" in params and not (-EPS <= params["X"] <= bed_w + EPS):
                 problems.append(f"line {n}: X{params['X']:g} is off the plate")
-            if "Y" in params and not (-EPS <= params["Y"] <= BED_H + EPS):
+            if "Y" in params and not (-EPS <= params["Y"] <= bed_h + EPS):
                 problems.append(f"line {n}: Y{params['Y']:g} is off the plate")
             if "Z" in params and not (min_z - EPS <= params["Z"] <= MAX_Z):
                 problems.append(f"line {n}: Z{params['Z']:g} is outside {min_z:g}–{MAX_Z:g}")

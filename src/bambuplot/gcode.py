@@ -77,6 +77,7 @@ def start_sequence(w: _Writer, layout: Layout, title: str = "") -> None:
       f"rotated {paper.rotation:g} deg")
     w(f"; area (pen)  {a.w:g} x {a.h:g} mm centered at X{_f(a.center[0])} Y{_f(a.center[1])}, "
       f"rotated {a.rotation:g} deg")
+    w(f"; printer     {layout.bed.label}, plate {layout.bed.w:g} x {layout.bed.h:g} mm")
     w(f"; pen offset  dX {_f(layout.pen.offset_x)} dY {_f(layout.pen.offset_y)} (nozzle = pen - offset)")
     w(f"; Z           touch {_z(z.touch)} down {_z(z.down)} up {_z(z.up)} safe {_z(layout.safe_z)}")
     w("G90", "absolute positioning")
@@ -138,7 +139,7 @@ def compile_strokes(layout: Layout, strokes: list[Stroke], title: str = "", chec
     end_sequence(w, layout)
 
     text = w.text()
-    problems = validate(text, min_z=lowest)
+    problems = validate(text, min_z=lowest, bed_w=layout.bed.w, bed_h=layout.bed.h)
     if problems:
         raise GcodeSafetyError(problems)
     return text

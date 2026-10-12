@@ -4,12 +4,13 @@ from __future__ import annotations
 
 import numpy as np
 
-from .layout import BED, Layout
+from .layout import Layout
 
 
 def to_svg(layout: Layout, lines_pen: list[np.ndarray]) -> str:
     paper, area = layout.paper.poly(), layout.area.poly()
-    pts = np.vstack([BED.poly(), paper])
+    bed = layout.bed.rect()
+    pts = np.vstack([bed.poly(), paper])
     x0, y0 = pts.min(axis=0) - 5
     x1, y1 = pts.max(axis=0) + 5
     W, H = x1 - x0, y1 - y0
@@ -27,7 +28,7 @@ def to_svg(layout: Layout, lines_pen: list[np.ndarray]) -> str:
     return (
         f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {W:.2f} {H:.2f}" '
         f'width="{W:.2f}mm" height="{H:.2f}mm">'
-        + poly(BED.poly(), "fill:#2c2d29")
+        + poly(bed.poly(), "fill:#2c2d29")
         + poly(paper, "fill:#fdfdf9;stroke:#c3c6be;stroke-width:.4")
         + poly(area, "fill:none;stroke:#2246c8;stroke-width:.3;stroke-dasharray:2 1")
         + f'<path d="{path}" style="fill:none;stroke:#1c2c8a;stroke-width:{layout.pen.width_mm};'

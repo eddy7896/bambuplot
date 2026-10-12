@@ -24,7 +24,7 @@ from .fit import center_area, fit_area
 from .gcode import UnsafeLayout
 from . import mask as masking
 from .image import Prep, load_gray
-from .layout import PAPER_LABELS, PAPER_SIZES, Layout
+from .layout import PAPER_LABELS, PAPER_SIZES, PRINTERS, Layout
 from .paths import stats
 from .pipeline import Plan, make_plan, plan_to_gcode, touch_in_area
 from .package import TemplateError
@@ -144,9 +144,10 @@ def list_effects():
 @app.get("/api/defaults")
 def defaults():
     m = mach.load()
-    layout = Layout(pen=m.pen, z=m.z, feed=m.feed)  # new projects start with this printer's holder settings
+    layout = Layout(pen=m.pen, z=m.z, feed=m.feed, bed=m.bed)  # new projects start with this printer's settings
     return {"layout": layout.model_dump(), "prep": Prep().model_dump(), "machine": m.model_dump(),
             "extras": extras_mod.Extras().model_dump(),
+            "printers": [{"key": k, "label": v[0], "w": v[1], "h": v[2]} for k, v in PRINTERS.items()],
             "paper_sizes": [{"key": k, "label": PAPER_LABELS[k], "w": w, "h": h} for k, (w, h) in PAPER_SIZES.items()],
             "bed": [180, 180]}
 
@@ -390,7 +391,8 @@ def _min_z(lay: Layout) -> float:
 def send(req: SendRequest):
     text, stem = _job_text(req)
     try:
-        return printer.send_job(printer.load_config(), text, stem, min_z=_min_z(req.layout), start=req.start)
+        return printer.send_job(printer.load_config(), text, stem, min_z=_min_z(req.layout), start=req.start,
+                                bed=(req.layout.bed.w, req.layout.bed.h))
     except (printer.PrinterError, TemplateError) as err:
         _printer_error(err)
 
@@ -400,7 +402,8 @@ def package_job(req: SendRequest):
     """The job as a .gcode.3mf built from the saved template, for Bambu Connect or the SD card."""
     text, stem = _job_text(req)
     try:
-        name, data, _ = printer.build_job(text, stem, min_z=_min_z(req.layout), require_template=True)
+        name, data, _ = printer.build_job(text, stem, min_z=_min_z(req.layout), require_template=True,
+                                          bed=(req.layout.bed.w, req.layout.bed.h))
     except (printer.PrinterError, TemplateError) as err:
         raise HTTPException(422, str(err))
     return Response(data, media_type="application/octet-stream",
@@ -411,7 +414,7 @@ def package_job(req: SendRequest):
 def bambu_connect(req: SendRequest):
     text, stem = _job_text(req)
     try:
-        return printer.open_in_bambu_connect(text, stem, min_z=_min_z(req.layout))
+        return printer.open_in_bambu_connect(text, stem, min_z=_min_z(req.layout), bed=(req.layout.bed.w, req.layout.bed.h))
     except printer.PrinterError as err:
         raise HTTPException(422, str(err))
     except TemplateError as err:

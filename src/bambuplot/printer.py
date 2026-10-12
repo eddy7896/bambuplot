@@ -101,7 +101,9 @@ def save_config(cfg: PrinterConfig) -> None:
 
 
 def save_template(data: bytes) -> dict:
-    info = package.inspect_template(data)
+    from . import machine
+
+    info = package.inspect_template(data, machine.load().bed.model_id)
     CONFIG_DIR.mkdir(parents=True, exist_ok=True)
     template_path().write_bytes(data)
     return info
@@ -111,8 +113,10 @@ def template_info() -> dict | None:
     p = template_path()
     if not p.exists():
         return None
+    from . import machine  # imported here: machine uses this module's CONFIG_DIR
+
     try:
-        return package.inspect_template(p.read_bytes())
+        return package.inspect_template(p.read_bytes(), machine.load().bed.model_id)
     except package.TemplateError as err:
         return {"error": str(err)}
 
@@ -288,9 +292,9 @@ def safe_name(stem: str) -> str:
 
 
 def build_job(gcode: str, stem: str, min_z: float, use_template: bool = True,
-              require_template: bool = False) -> tuple[str, bytes, str | None]:
+              require_template: bool = False, bed: tuple[float, float] = (180.0, 180.0)) -> tuple[str, bytes, str | None]:
     """Validate and package a job: (file name, bytes, plate param or None for plain G-code)."""
-    problems = validate(gcode, min_z=min_z)
+    problems = validate(gcode, min_z=min_z, bed_w=bed[0], bed_h=bed[1])
     if problems:
         raise PrinterError("Refusing to send unsafe G-code: " + "; ".join(problems[:5]))
     tpl = template_path()
@@ -306,12 +310,12 @@ def build_job(gcode: str, stem: str, min_z: float, use_template: bool = True,
 
 
 def send_job(cfg: PrinterConfig, gcode: str, stem: str, min_z: float, start: bool,
-             use_template: bool = True, timeout: float = 30) -> dict:
+             use_template: bool = True, timeout: float = 30, bed: tuple[float, float] = (180.0, 180.0)) -> dict:
     """Validate, package, upload and optionally start a job. Returns what happened."""
     missing = cfg.ready()
     if missing:
         raise PrinterError("Printer settings incomplete: add " + " and ".join(missing) + ".")
-    name, data, plate_param = build_job(gcode, stem, min_z, use_template)
+    name, data, plate_param = build_job(gcode, stem, min_z, use_template, bed=bed)
 
     if start:
         # Never start on top of another job.
@@ -358,9 +362,10 @@ def _open_url(url: str) -> None:
         )
 
 
-def open_in_bambu_connect(gcode: str, stem: str, min_z: float, opener=None) -> dict:
+def open_in_bambu_connect(gcode: str, stem: str, min_z: float, opener=None,
+                          bed: tuple[float, float] = (180.0, 180.0)) -> dict:
     """Package the job, save it locally and hand it to Bambu Connect."""
-    name, data, _ = build_job(gcode, stem, min_z, require_template=True)
+    name, data, _ = build_job(gcode, stem, min_z, require_template=True, bed=bed)
     folder = jobs_dir()
     folder.mkdir(parents=True, exist_ok=True)
     path = (folder / name).resolve()

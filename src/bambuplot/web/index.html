@@ -441,6 +441,123 @@
   </div>
 </dialog>
 
+<!-- ============================== new project setup ============================== -->
+<dialog id="newSheet" class="sheet wizard" aria-labelledby="nwTitle">
+  <div class="wiz">
+    <header class="wiz-head">
+      <h2 id="nwTitle">New Project</h2>
+      <ol class="wiz-steps" aria-label="Steps">
+        <li data-s="1" aria-current="step">Printer &amp; Pen</li>
+        <li data-s="2">Paper</li>
+        <li data-s="3">Project</li>
+      </ol>
+    </header>
+
+    <section class="wiz-step" data-step="1">
+      <label class="field wide"><span>Printer and build plate</span><select id="nwPrinter"></select></label>
+      <div class="grid2" id="nwBedCustom" hidden style="margin-top:8px">
+        <label class="field"><span>Plate width (X)</span><input type="number" id="nwBedW" step="1" min="50" max="600"></label>
+        <label class="field"><span>Plate depth (Y)</span><input type="number" id="nwBedH" step="1" min="50" max="600"></label>
+      </div>
+      <h3 class="subhead">Pen</h3>
+      <div class="grid2">
+        <label class="field"><span>Pen tip width</span>
+          <select id="nwPenW">
+            <option value="0.1">0.1 mm · technical fineliner</option>
+            <option value="0.2">0.2 mm · fineliner</option>
+            <option value="0.3">0.3 mm · fineliner</option>
+            <option value="0.4">0.4 mm · fineliner / rollerball</option>
+            <option value="0.5">0.5 mm · gel or ballpoint</option>
+            <option value="0.7">0.7 mm · gel pen</option>
+            <option value="1.0">1.0 mm · felt tip</option>
+            <option value="2.0">2.0 mm · marker</option>
+          </select>
+        </label>
+        <label class="field"><span>Pen holder</span>
+          <select id="nwHolder"><option value="rigid">Rigid clip-on</option><option value="spring">Spring-loaded</option></select>
+        </label>
+      </div>
+      <h3 class="subhead">Where is the pen tip, compared with the nozzle?</h3>
+      <div class="offsetbox">
+        <div class="offtext">
+          <p>The pen tip is <input type="number" id="nwOffY" step="0.5" min="0" aria-label="Front or back distance"> <span class="nwu"></span>
+            <select id="nwOffYDir" aria-label="Front or back"><option value="front">in front of</option><option value="back">behind</option></select> the nozzle,</p>
+          <p>and <input type="number" id="nwOffX" step="0.5" min="0" aria-label="Left or right distance"> <span class="nwu"></span>
+            <select id="nwOffXDir" aria-label="Left or right"><option value="right">to the right of</option><option value="left">to the left of</option></select> it.</p>
+          <p class="foot">Measure from the nozzle tip to the pen tip, looking down from above. Not sure? Enter your best guess, then run the alignment test.</p>
+        </div>
+        <svg class="offdiag" id="nwOffDiag" viewBox="0 0 120 110" aria-hidden="true"></svg>
+      </div>
+      <p class="foot">Printer, plate and pen are saved for all your projects.</p>
+    </section>
+
+    <section class="wiz-step" data-step="2" hidden>
+      <div class="wiz-cols">
+        <div>
+          <div class="grid2">
+            <label class="field"><span>Paper size</span><select id="nwPaper"></select></label>
+            <div class="field"><span>Orientation</span>
+              <div class="segmented mini" id="nwOrient"><button type="button" data-o="portrait" aria-pressed="true">Portrait</button><button type="button" data-o="landscape" aria-pressed="false">Landscape</button></div>
+            </div>
+          </div>
+          <div class="grid2" id="nwPaperCustom" hidden style="margin-top:8px">
+            <label class="field"><span>Width</span><input type="number" id="nwPW" step="0.5" min="10" max="400"></label>
+            <label class="field"><span>Height</span><input type="number" id="nwPH" step="0.5" min="10" max="400"></label>
+          </div>
+          <div class="grid2" style="margin-top:8px">
+            <label class="field"><span>Place it</span>
+              <select id="nwPlace"><option value="center">Centered on the plate</option><option value="front">Toward the front</option><option value="back">Toward the back</option></select>
+            </label>
+            <label class="field" title="Keep the drawing this far inside the paper edges"><span>Paper margin</span><input type="number" id="nwMargin" step="0.5" min="0"></label>
+          </div>
+          <h3 class="subhead">Held down with</h3>
+          <div class="segmented mini" id="nwHold">
+            <button type="button" data-h="clips" aria-pressed="true">Clips</button>
+            <button type="button" data-h="tape" aria-pressed="false">Tape</button>
+            <button type="button" data-h="both" aria-pressed="false">Both</button>
+            <button type="button" data-h="none" aria-pressed="false">Nothing</button>
+          </div>
+          <div id="nwTapeBox" hidden>
+            <div class="field" style="margin-top:8px"><span>Taped edges</span>
+              <div class="segmented multi" id="nwTapeEdges">
+                <button type="button" data-edge="left" aria-pressed="true">Left</button><button type="button" data-edge="front" aria-pressed="false">Front</button><button type="button" data-edge="right" aria-pressed="true">Right</button><button type="button" data-edge="back" aria-pressed="false">Back</button>
+              </div>
+            </div>
+            <div class="grid2" style="margin-top:8px">
+              <label class="field"><span>Tape width</span><input type="number" id="nwTapeW" step="1" min="3" max="60"></label>
+              <label class="field"><span>On the paper</span><input type="number" id="nwTapeOn" step="0.5" min="0.5" max="40"></label>
+            </div>
+          </div>
+          <p class="foot" id="nwPaperNote"></p>
+        </div>
+        <figure class="wiz-preview"><svg id="nwPreview" aria-label="Plate preview"></svg><figcaption id="nwPreviewCap"></figcaption></figure>
+      </div>
+    </section>
+
+    <section class="wiz-step" data-step="3" hidden>
+      <label class="field wide"><span>Project name</span><input type="text" id="nwName" placeholder="Untitled" autocomplete="off"></label>
+      <h3 class="subhead">Start with</h3>
+      <div class="choices" id="nwStart" role="radiogroup">
+        <button type="button" role="radio" data-start="picture" aria-checked="true"><b>A picture or SVG</b><span>Choose a PNG, JPG or SVG to plot.</span></button>
+        <button type="button" role="radio" data-start="sample" aria-checked="false"><b>The sample</b><span>Try the effects on a built-in picture.</span></button>
+        <button type="button" role="radio" data-start="align" aria-checked="false"><b>Alignment test</b><span>Check where drawings land. Best for a new pen or holder.</span></button>
+      </div>
+      <input type="file" id="nwFile" accept="image/png,image/jpeg,image/webp,image/svg+xml,.svg" hidden>
+      <p class="foot" id="nwFileName"></p>
+      <h3 class="subhead">Summary</h3>
+      <dl class="summary" id="nwSummary"></dl>
+    </section>
+
+    <p class="msg" id="nwMsg" role="status"></p>
+    <footer class="sheet-buttons">
+      <button class="btn" type="button" id="nwCancel">Cancel</button>
+      <span class="spacer"></span>
+      <button class="btn" type="button" id="nwBack" hidden>Back</button>
+      <button class="btn accent" type="button" id="nwNext">Continue</button>
+    </footer>
+  </div>
+</dialog>
+
 <!-- ============================== signature pad ============================== -->
 <dialog id="sigSheet" class="sheet sigsheet" aria-labelledby="sigTitle">
   <div class="sigwrap">
@@ -500,5 +617,6 @@
 </dialog>
 
 <script src="/static/app.js"></script>
+<script src="/static/wizard.js"></script>
 </body>
 </html>

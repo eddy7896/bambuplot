@@ -31,7 +31,7 @@ class TemplateError(ValueError):
     pass
 
 
-def inspect_template(data: bytes) -> dict:
+def inspect_template(data: bytes, expected_model: str | tuple[str, ...] | None = A1_MINI) -> dict:
     """Check a .gcode.3mf template and describe it."""
     try:
         zf = zipfile.ZipFile(io.BytesIO(data))
@@ -57,9 +57,11 @@ def inspect_template(data: bytes) -> dict:
                 pass
     plate = plates[0][1]
     warning = None
-    if model and model != A1_MINI:
-        warning = (f"This template was sliced for the {MODEL_NAMES.get(model, model)}, not the A1 mini. "
-                   "Export one sliced for the A1 mini.")
+    expected = (expected_model,) if isinstance(expected_model, str) else tuple(expected_model or ())
+    if model and expected and model not in expected:
+        want = " / ".join(MODEL_NAMES.get(m, m) for m in expected)
+        warning = (f"This template was sliced for the {MODEL_NAMES.get(model, model)}, not the {want}. "
+                   f"Export one sliced for the {want}.")
     return {
         "plate": plate,
         "param": plate,  # what the print command names as the file to run

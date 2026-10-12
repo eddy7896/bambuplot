@@ -11,7 +11,7 @@ let lineStr=[], travelStr=[], totalPts=0, planSeq=0;
 const R=(x,y,w,h)=>({x,y,w,h});
 const x2=r=>r.x+r.w, y2=r=>r.y+r.h;
 const grow=(r,m)=>R(r.x-m,r.y-m,r.w+2*m,r.h+2*m);
-const BED=R(0,0,180,180);
+const bedRect=()=>R(0,0,L?.bed?.w||180,L?.bed?.h||180);
 const normAng=a=>{a=((a+180)%360+360)%360-180;return Math.round(a*10)/10||0};
 const rotPt=(x,y,deg)=>{const t=deg*Math.PI/180,c=Math.cos(t),s=Math.sin(t);return [x*c-y*s,x*s+y*c]};
 function paperBox(){
@@ -24,7 +24,7 @@ function paperBox(){
 function edgeDist(b){
   const c=corners(b),xs=c.map(p=>p[0]),ys=c.map(p=>p[1]);
   const x0=Math.min(...xs),x1=Math.max(...xs),y0=Math.min(...ys),y1=Math.max(...ys);
-  return {left:x0,front:y0,right:180-x1,back:180-y1,x0,x1,y0,y1};
+  const plate=bedRect();return {left:x0,front:y0,right:plate.w-x1,back:plate.h-y1,x0,x1,y0,y1};
 }
 const areaBox=()=>({...L.area,rot:L.area.rotation||0});
 const centerOf=b=>[b.x+b.w/2,b.y+b.h/2];
@@ -33,7 +33,7 @@ function toWorld(b,lx,ly){const [cx,cy]=centerOf(b),[dx,dy]=rotPt(lx-b.w/2,ly-b.
 const corners=b=>[[0,0],[b.w,0],[b.w,b.h],[0,b.h]].map(([u,v])=>toWorld(b,u,v));
 const clipRect=c=>R(c.x,c.y,L.clip_w,L.clip_d);
 const keepouts=()=>L.clips.map(c=>grow(clipRect(c),L.clip_keep_out));
-const reach=()=>R(L.pen.offset_x,L.pen.offset_y,180,180);
+const reach=()=>R(L.pen.offset_x,L.pen.offset_y,L.bed.w,L.bed.h);
 /* Measurement units for page and paper lengths. Everything is stored in mm; this is display and input only. */
 const UNITS={
   // dec: decimals in labels; inDec: decimals in input fields
@@ -141,7 +141,7 @@ const esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;',
 /* ---------- rendering ---------- */
 const svg=$('plate');
 function computeView(){
-  const pts=[...corners(paperBox()),...corners({...reach(),rot:0}),...corners({...BED,rot:0}),...L.clips.flatMap(c=>corners({...clipRect(c),rot:0}))];
+  const pts=[...corners(paperBox()),...corners({...reach(),rot:0}),...corners({...bedRect(),rot:0}),...L.clips.flatMap(c=>corners({...clipRect(c),rot:0}))];
   const xs=pts.map(p=>p[0]),ys=pts.map(p=>p[1]);
   V={x0:Math.min(...xs)-14,y0:Math.min(...ys)-16,x1:Math.max(...xs)+10,y1:Math.max(...ys)+18};
   svg.setAttribute('viewBox',`0 0 ${V.x1-V.x0} ${V.y1-V.y0}`);
@@ -154,10 +154,13 @@ const isBad=()=>checks.some(c=>c.state==='bad');
 
 function renderUnder(){
   const p=paperBox(),pr=R(p.x,p.y,p.w,p.h),m=L.paper.margin;
-  let h=`<defs><mask id="offbed" maskUnits="userSpaceOnUse" x="0" y="0" width="${V.x1-V.x0}" height="${V.y1-V.y0}"><rect x="0" y="0" width="${V.x1-V.x0}" height="${V.y1-V.y0}" fill="white"></rect><rect ${rA(BED)} fill="black"></rect></mask></defs>`;
-  h+=`<rect class="bed" ${rA(BED)} rx="2"></rect>`;
-  for(let i=10;i<180;i+=10)h+=`<line class="grid" x1="${X(i)}" y1="${Y(0)}" x2="${X(i)}" y2="${Y(180)}"></line><line class="grid" x1="${X(0)}" y1="${Y(i)}" x2="${X(180)}" y2="${Y(i)}"></line>`;
-  h+=`<text class="bedlbl" x="${X(178)}" y="${Y(176)}" text-anchor="end">A1 MINI PLATE 180 × 180</text>`;
+  let h=`<defs><mask id="offbed" maskUnits="userSpaceOnUse" x="0" y="0" width="${V.x1-V.x0}" height="${V.y1-V.y0}"><rect x="0" y="0" width="${V.x1-V.x0}" height="${V.y1-V.y0}" fill="white"></rect><rect ${rA(bedRect())} fill="black"></rect></mask></defs>`;
+  h+=`<rect class="bed" ${rA(bedRect())} rx="2"></rect>`;
+  const bw=L.bed.w,bh=L.bed.h;
+  for(let i=10;i<bw;i+=10)h+=`<line class="grid" x1="${X(i)}" y1="${Y(0)}" x2="${X(i)}" y2="${Y(bh)}"></line>`;
+  for(let i=10;i<bh;i+=10)h+=`<line class="grid" x1="${X(0)}" y1="${Y(i)}" x2="${X(bw)}" y2="${Y(i)}"></line>`;
+  const pl=(DEF.printers||[]).find(p=>p.key===L.bed.printer);
+  h+=`<text class="bedlbl" x="${X(bw-2)}" y="${Y(bh-4)}" text-anchor="end">${esc((pl?pl.label:'Custom plate').toUpperCase())} · ${fmtSize(bw,bh).toUpperCase()}</text>`;
   h+=`<g ${rotAttr(p)}><rect class="paper${sel==='paper'?' sel':''}" data-drag="paper" ${rA(pr)}></rect></g>`;
   h+=`<g mask="url(#offbed)"><g ${rotAttr(p)}><rect class="overhang" ${rA(pr)}></rect></g></g>`;
   h+=`<g ${rotAttr(p)}><rect class="pmargin" ${rA(R(p.x+m,p.y+m,p.w-2*m,p.h-2*m))}></rect>`;
@@ -176,9 +179,10 @@ function dimsSVG(b){
     h+=`<text class="dimlbl${cls}" x="${X(lx)}" y="${Y(ly)}" text-anchor="${anchor}">${over?`${fmtLen(-val)} over`:fmtLen(val)}</text>`;
   };
   if(Math.abs(d.left)>0.05)seg(0,cy,d.x0,cy,d.left,(0+d.x0)/2,cy+1.2,'middle');
-  if(Math.abs(d.right)>0.05)seg(d.x1,cy,180,cy,d.right,(d.x1+180)/2,cy+1.2,'middle');
+  const BW=L.bed.w,BH=L.bed.h;
+  if(Math.abs(d.right)>0.05)seg(d.x1,cy,BW,cy,d.right,(d.x1+BW)/2,cy+1.2,'middle');
   if(Math.abs(d.front)>0.05)seg(cx,0,cx,d.y0,d.front,cx+1.6,(0+d.y0)/2-1.2,'start');
-  if(Math.abs(d.back)>0.05)seg(cx,d.y1,cx,180,d.back,cx+1.6,(d.y1+180)/2-1.2,'start');
+  if(Math.abs(d.back)>0.05)seg(cx,d.y1,cx,BH,d.back,cx+1.6,(d.y1+BH)/2-1.2,'start');
   if(b.rot)h+=`<rect class="dimext" x="${X(d.x0)}" y="${Y(d.y1)}" width="${(d.x1-d.x0).toFixed(2)}" height="${(d.y1-d.y0).toFixed(2)}"></rect>`;
   return h;
 }
@@ -311,10 +315,10 @@ document.querySelectorAll('[id^="D."]').forEach(el=>el.addEventListener('input',
 let machineT=0;
 function saveMachine(){
   clearTimeout(machineT);
-  machineT=setTimeout(()=>fetch('/api/machine',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({pen:L.pen,z:L.z,feed:L.feed})}).catch(()=>{}),500);
+  machineT=setTimeout(()=>fetch('/api/machine',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({bed:L.bed,pen:L.pen,z:L.z,feed:L.feed})}).catch(()=>{}),500);
 }
 function changed(keys){
-  if(keys.some(k=>/^(pen|z|feed)\./.test(k)))saveMachine();
+  if(keys.some(k=>/^(bed|pen|z|feed)\./.test(k)))saveMachine();
   render();refreshChecks();save();
   if(keys.some(k=>PLAN_KEYS.has(k)||k.startsWith('feed.')||k.startsWith('z.')))schedulePlan();
 }
@@ -494,7 +498,7 @@ function startDraw(kind){
 function stopDraw(){drawing=null;svg.classList.remove('drawing');$('drawPaper').classList.remove('on');$('drawArea').classList.remove('on');renderOver()}
 $('drawPaper').onclick=()=>drawing?.kind==='paper'?stopDraw():startDraw('paper');
 $('drawArea').onclick=()=>drawing?.kind==='area'?stopDraw():startDraw('area');
-$('centerPaper').onclick=()=>{const b=paperBox();L.paper.x=snapv(90-b.w/2);L.paper.y=snapv(90-b.h/2);sel='paper';changed(['moved'])};
+$('centerPaper').onclick=()=>{const b=paperBox();L.paper.x=snapv(L.bed.w/2-b.w/2);L.paper.y=snapv(L.bed.h/2-b.h/2);sel='paper';changed(['moved'])};
 $('dimsBtn').onclick=()=>{showDims=!showDims;$('dimsBtn').setAttribute('aria-pressed',showDims);renderOver()};
 document.addEventListener('keydown',e=>{if(e.key==='Escape'&&drawing){stopDraw();setStatus('Drawing cancelled.')}});
 svg.addEventListener('pointerdown',e=>{
@@ -1022,7 +1026,7 @@ for(const ev of ['dragenter','dragover'])document.addEventListener(ev,e=>{if([..
 for(const ev of ['dragleave','drop'])document.addEventListener(ev,()=>canvasEl.classList.remove('dropping'));
 document.addEventListener('drop',e=>{const f=e.dataTransfer?.files?.[0];if(f){e.preventDefault();openFile(f)}});
 document.addEventListener('keydown',e=>{
-  if(!(e.metaKey||e.ctrlKey)||$('editor').open||$('sendSheet').open||$('sigSheet').open||!$('dashboard').hidden)return;
+  if(!(e.metaKey||e.ctrlKey)||$('editor').open||$('sendSheet').open||$('sigSheet').open||$('newSheet').open||!$('dashboard').hidden)return;
   const k=e.key.toLowerCase();
   if(k==='o'){e.preventDefault();$('file').click()}
   else if(k==='s'){e.preventDefault();saveNow()}
@@ -1032,7 +1036,6 @@ document.addEventListener('keydown',e=>{
   else if(['1','2','3','4'].includes(k)){e.preventDefault();selectTab(['tab-picture','tab-effect','tab-setup','tab-printer'][+k-1])}
 });
 
-/* ---------- boot ---------- */
 /* ---------- projects & dashboard ---------- */
 const DASH={list:[],sort:'recent',query:'',menuFor:null};
 function relTime(t){
@@ -1082,7 +1085,7 @@ async function openProject(pid){
   L=deepMerge(DEF.layout,st.layout);job.prep=deepMerge(DEF.prep,st.prep);
   try{ // the printer's shared holder settings win over whatever an older project saved
     const m=await (await fetch('/api/machine')).json();
-    L.pen=deepMerge(DEF.layout.pen,m.pen);L.z=deepMerge(DEF.layout.z,m.z);L.feed=deepMerge(DEF.layout.feed,m.feed);
+    L.bed=deepMerge(DEF.layout.bed,m.bed);L.pen=deepMerge(DEF.layout.pen,m.pen);L.z=deepMerge(DEF.layout.z,m.z);L.feed=deepMerge(DEF.layout.feed,m.feed);
   }catch(_){}
   job.effect=effects.some(e=>e.name===st.effect)?st.effect:'waves';
   job.params=(st.params&&typeof st.params==='object')?st.params:{};
@@ -1112,7 +1115,7 @@ function route(){
 }
 window.addEventListener('hashchange',route);
 $('toProjects').onclick=()=>{location.hash='#/'};
-$('projNew').onclick=$('projNewEmpty').onclick=()=>newProject();
+$('projNew').onclick=$('projNewEmpty').onclick=()=>openWizard();
 $('projAlign').onclick=async()=>{
   let layout=null;const last=DASH.list[0];
   if(last){try{layout=(await (await fetch(`/api/projects/${last.id}`)).json()).state?.layout||null}catch(_){}}
@@ -1130,7 +1133,7 @@ $('projName').addEventListener('blur',()=>{if(!$('projName').value.trim())$('pro
 /* cards: click to open, ⋯ for actions */
 $('projGrid').addEventListener('click',e=>{
   const c=e.target.closest('.card');if(!c||e.target.closest('.confirm,.rename'))return;
-  if(c.dataset.new){newProject();return}
+  if(c.dataset.new){openWizard();return}
   const more=e.target.closest('.more');
   if(more){
     DASH.menuFor=c.dataset.id;const m=$('cardMenu'),r=more.getBoundingClientRect();
@@ -1141,7 +1144,7 @@ $('projGrid').addEventListener('click',e=>{
 });
 $('projGrid').addEventListener('keydown',e=>{
   const c=e.target.closest('.card');if(!c||e.target!==c)return;
-  if(e.key==='Enter'){c.dataset.new?newProject():location.hash=`#/p/${c.dataset.id}`}
+  if(e.key==='Enter'){c.dataset.new?openWizard():location.hash=`#/p/${c.dataset.id}`}
   else if((e.key==='Backspace'||e.key==='Delete')&&!c.dataset.new){e.preventDefault();askDelete(c)}
 });
 $('cardMenu').addEventListener('toggle',e=>{if(e.newState==='closed')document.querySelectorAll('.more[aria-expanded="true"]').forEach(b=>b.setAttribute('aria-expanded','false'))});

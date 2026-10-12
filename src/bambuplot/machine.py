@@ -10,10 +10,11 @@ from __future__ import annotations
 from pydantic import BaseModel, Field
 
 from . import printer
-from .layout import Feed, Pen, ZSettings
+from .layout import Bed, Feed, Pen, ZSettings
 
 
 class Machine(BaseModel):
+    bed: Bed = Field(default_factory=Bed)
     pen: Pen = Field(default_factory=Pen)
     z: ZSettings = Field(default_factory=ZSettings)
     feed: Feed = Field(default_factory=Feed)

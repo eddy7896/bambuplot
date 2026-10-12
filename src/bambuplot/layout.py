@@ -124,7 +124,35 @@ class Area(Rect):
         return local @ rotation(self.rotation).T + self.center
 
 
-BED = Rect(x=0, y=0, w=BED_W, h=BED_H)
+BED = Rect(x=0, y=0, w=BED_W, h=BED_H)  # the A1 mini plate; layouts carry their own Bed
+
+
+# Build plates: key → (label, width, depth, Bambu printer model ids used in .gcode.3mf files)
+PRINTERS = {
+    "a1mini": ("Bambu Lab A1 mini", 180.0, 180.0, ("N1",)),
+    "a1": ("Bambu Lab A1", 256.0, 256.0, ("N2S",)),
+    "p1": ("Bambu Lab P1P / P1S", 256.0, 256.0, ("C11", "C12")),
+    "x1": ("Bambu Lab X1 Carbon / X1E", 256.0, 256.0, ("BL-P001", "BL-P002")),
+}
+
+
+class Bed(BaseModel):
+    """The printer's build plate: where the nozzle can go, X 0..w and Y 0..h."""
+
+    printer: str = "a1mini"  # a PRINTERS key, or "custom"
+    w: float = Field(BED_W, ge=50, le=600)
+    h: float = Field(BED_H, ge=50, le=600)
+
+    @property
+    def label(self) -> str:
+        return PRINTERS[self.printer][0] if self.printer in PRINTERS else f"Custom {self.w:g} × {self.h:g}"
+
+    @property
+    def model_id(self) -> tuple[str, ...] | None:
+        return PRINTERS[self.printer][3] if self.printer in PRINTERS else None
+
+    def rect(self) -> Rect:
+        return Rect(x=0, y=0, w=self.w, h=self.h)
 
 
 class Paper(BaseModel):
@@ -242,6 +270,7 @@ class Layout(BaseModel):
     clips: list[Clip] = Field(default_factory=_default_clips)
     area: Area = Field(default_factory=lambda: Area(x=22, y=24, w=136, h=132))
     tape: Tape = Field(default_factory=Tape)
+    bed: Bed = Field(default_factory=Bed)
     touch_off: TouchOff = "fl"
 
     @property
@@ -250,7 +279,7 @@ class Layout(BaseModel):
 
     def reach(self) -> Rect:
         """Where the pen tip can go while the nozzle stays inside 0–180 mm."""
-        return Rect(x=self.pen.offset_x, y=self.pen.offset_y, w=BED_W, h=BED_H)
+        return Rect(x=self.pen.offset_x, y=self.pen.offset_y, w=self.bed.w, h=self.bed.h)
 
     def clip_rects(self) -> list[Rect]:
         return [Rect(x=c.x, y=c.y, w=self.clip_w, h=self.clip_d) for c in self.clips]
@@ -302,14 +331,14 @@ class Layout(BaseModel):
 
     def allowed_polys(self) -> tuple[list[np.ndarray], list[np.ndarray]]:
         """Regions the area must stay inside, and regions it must stay out of."""
-        keep_in = [self.paper.poly(self.paper.margin), BED.poly(), self.reach().poly()]
+        keep_in = [self.paper.poly(self.paper.margin), self.bed.rect().poly(), self.reach().poly()]
         keep_out = [k.poly() for k in self.keep_outs()] + [p for _, p in self.tape_polys(self.tape.keep_out)]
         return keep_in, keep_out
 
     def edge_distances(self, poly: np.ndarray) -> dict:
         """How far a shape's outer edges are from each plate edge (negative = hangs over)."""
         (x0, y0), (x1, y1) = poly.min(axis=0), poly.max(axis=0)
-        return {"left": float(x0), "front": float(y0), "right": float(BED_W - x1), "back": float(BED_H - y1)}
+        return {"left": float(x0), "front": float(y0), "right": float(self.bed.w - x1), "back": float(self.bed.h - y1)}
 
     def checks(self) -> list[Check]:
         a = self.area
@@ -327,7 +356,7 @@ class Layout(BaseModel):
             f"At least {m:g} mm from every paper edge." if ok else f"Keep the area {m:g} mm inside the paper edges.",
         ))
 
-        ok = contains(BED.poly(), ap)
+        ok = contains(self.bed.rect().poly(), ap)
         out.append(Check(
             "ok" if ok else "bad", "On supported paper",
             "The whole area sits on the plate." if ok
@@ -337,8 +366,8 @@ class Layout(BaseModel):
         ok = contains(self.reach().poly(), ap)
         out.append(Check(
             "ok" if ok else "bad", "Within pen reach",
-            "Every nozzle move stays inside X 0–180, Y 0–180." if ok
-            else "With this pen offset the nozzle would have to leave 0–180 mm.",
+            f"Every nozzle move stays inside X 0–{self.bed.w:g}, Y 0–{self.bed.h:g}." if ok
+            else f"With this pen offset the nozzle would have to leave the {self.bed.w:g} × {self.bed.h:g} mm plate.",
         ))
 
         hits = [str(i + 1) for i, k in enumerate(self.keep_outs()) if overlaps(k.poly(), ap)]
@@ -366,8 +395,8 @@ class Layout(BaseModel):
                              "No clip touches the sheet and no edge is taped. Loose paper shifts as the bed moves."))
 
         over = {
-            "front": max(0.0, -paper[:, 1].min()), "back": max(0.0, paper[:, 1].max() - BED_H),
-            "left": max(0.0, -paper[:, 0].min()), "right": max(0.0, paper[:, 0].max() - BED_W),
+            "front": max(0.0, -paper[:, 1].min()), "back": max(0.0, paper[:, 1].max() - self.bed.h),
+            "left": max(0.0, -paper[:, 0].min()), "right": max(0.0, paper[:, 0].max() - self.bed.w),
         }
         hang = [f"{k} {v:.0f} mm" for k, v in over.items() if v > 0.05]
         out.append(Check(

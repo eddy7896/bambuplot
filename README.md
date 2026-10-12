@@ -21,6 +21,16 @@ BambuPlot opens on a **Projects** dashboard, laid out like the Pages and Keynote
 - **Find and sort:** search by name or picture, and sort by Recent or Name.
 - **Actions:** **New Project**, or each card's ⋯ menu for Open, Rename, Duplicate and Delete. Delete asks for confirmation. On a selected card, Enter opens it and Delete removes it.
 
+**New Project** opens a three-step setup:
+1. **Printer & Pen:**
+   - **Printer and build plate:** A1 mini 180 × 180, A1 or P1 / X1 256 × 256, or a custom plate size.
+   - **Pen:** tip width and holder type (rigid or spring-loaded; this sets a sensible press).
+   - **Pen position:** where the pen tip sits relative to the nozzle, in plain words ("30 mm in front of, 0 mm to the right of"), with a live top-view diagram.
+2. **Paper:** size (preset or custom) and orientation; placement (centered, toward the front or back); margin; and whether it's held by clips, tape on chosen edges, both, or nothing. A live plate preview shows the sheet, tape, clips and the pen's reach.
+3. **Project:** name, and what to start with: a picture or SVG, the sample, or an alignment test. A summary lists every choice.
+
+The drawing area is fitted to the paper automatically. Printer, plate and pen settings are saved for all projects, so the sheet is pre-filled next time. Only the A1 mini has been tested; the other plate sizes adjust every limit and check, but the G-code start sequence has not been tried on those printers.
+
 **What a project keeps:** the bed layout, effect and effect settings, tone, crop and turn settings, the original picture or SVG, and the subject selection. Projects **save themselves** a moment after each change, like a Mac document. The toolbar shows *Edited* and then *Saved*, and ⌘S saves right away. Click the name in the toolbar to rename the project, and **‹ Projects** goes back to the dashboard.
 
 **Where they live:** `~/.config/bambuplot/projects/<id>/`, with `project.json`, `source.*`, `mask.png` and `thumb.png`. The first time you open this version, the setup you had before becomes a project called *My First Plot*.
