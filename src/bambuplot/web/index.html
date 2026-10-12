@@ -662,11 +662,11 @@
       <label class="field wide"><span>Project name</span><input type="text" id="nwName" placeholder="Untitled" autocomplete="off"></label>
       <h3 class="subhead">Start with</h3>
       <div class="choices" id="nwStart" role="radiogroup">
-        <button type="button" role="radio" data-start="picture" aria-checked="true"><b>A picture or SVG</b><span>Choose a PNG, JPG or SVG to plot.</span></button>
+        <button type="button" role="radio" data-start="picture" aria-checked="true"><b>A picture, SVG or video</b><span>Choose a PNG, JPG or SVG to plot, or a video for a flipbook.</span></button>
         <button type="button" role="radio" data-start="sample" aria-checked="false"><b>The sample</b><span>Try the effects on a built-in picture.</span></button>
         <button type="button" role="radio" data-start="align" aria-checked="false"><b>Alignment test</b><span>Check where drawings land. Best for a new pen or holder.</span></button>
       </div>
-      <input type="file" id="nwFile" accept="image/png,image/jpeg,image/webp,image/svg+xml,.svg" hidden>
+      <input type="file" id="nwFile" accept="image/png,image/jpeg,image/webp,image/svg+xml,.svg,video/*,.mp4,.mov,.m4v,.webm,.avi,.mkv,.gif" hidden>
       <p class="foot" id="nwFileName"></p>
       <h3 class="subhead">Summary</h3>
       <dl class="summary" id="nwSummary"></dl>

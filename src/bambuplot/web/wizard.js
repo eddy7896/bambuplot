@@ -152,7 +152,7 @@ function nwValid(){
     if(!(pw>=10&&ph>=10))return 'Enter the paper size.';
     if(pw>b.w+120||ph>b.h+120)return 'That paper is far bigger than the plate.';
   }
-  if(NW.step===3&&NW.start==='picture'&&!NW.file)return 'Choose a picture, or start with the sample.';
+  if(NW.step===3&&NW.start==='picture'&&!NW.file)return 'Choose a picture or video, or start with the sample.';
   return '';
 }
 async function nwCreate(){
