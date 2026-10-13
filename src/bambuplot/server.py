@@ -110,7 +110,12 @@ def _source(image_id: str):
         data = video.frame_bytes(*ref)
     except (video.VideoError, proj.ProjectError, OSError):
         return None
-    src = RasterSource(gray=load_gray(data), state=masking.MaskState(rgb=masking.load_rgb(data)), name=f"frame {ref[1] + 1}")
+    state = masking.MaskState(rgb=masking.load_rgb(data))
+    keep = video.frame_mask(*ref)
+    if keep is not None:  # the video's background removal
+        masking.set_mask(state, keep)
+        state.history.clear()
+    src = RasterSource(gray=load_gray(data), state=state, name=f"frame {ref[1] + 1}")
     _remember(_frames, image_id, src, MAX_FRAMES_LOADED)
     return src
 
@@ -1042,12 +1047,56 @@ def delete_video(pid: str):
 
 
 @app.get("/api/projects/{pid}/video/frames/{index}.jpg")
-def video_frame(pid: str, index: int):
+def video_frame(pid: str, index: int, cut: bool = False):
+    """A frame; with ``cut``, its removed background shows white."""
     try:
+        if cut:
+            return Response(video.frame_cutout(pid, index), media_type="image/jpeg",
+                            headers={"Cache-Control": "max-age=3600"})
         path = video.frame_path(pid, index)
     except (video.VideoError, proj.ProjectError) as err:
         _video_error(err)
     return FileResponse(path, media_type="image/jpeg", headers={"Cache-Control": "max-age=3600"})
+
+
+class BackgroundBody(BaseModel):
+    method: str = "auto"  # "auto" | "ai"
+    model: str | None = None
+
+
+@app.post("/api/projects/{pid}/video/background")
+def video_background(pid: str, body: BackgroundBody):
+    """Start removing the background from every frame. Poll GET for progress."""
+    try:
+        return video.start_background(pid, body.method, body.model)
+    except (video.VideoError, proj.ProjectError) as err:
+        _video_error(err)
+
+
+@app.get("/api/projects/{pid}/video/background")
+def video_background_status(pid: str):
+    try:
+        proj._dir(pid)
+    except proj.ProjectError as err:
+        _project_error(err)
+    st = video.background_status(pid)
+    if not st["running"]:
+        st["video"] = video.describe(pid)
+    return st
+
+
+@app.post("/api/projects/{pid}/video/background/cancel")
+def video_background_cancel(pid: str):
+    video.cancel_background(pid)
+    return {"ok": True}
+
+
+@app.delete("/api/projects/{pid}/video/background")
+def video_background_clear(pid: str):
+    try:
+        return video.clear_background(pid)
+    except (video.VideoError, proj.ProjectError) as err:
+        _video_error(err)
 
 
 class AlignmentBody(BaseModel):

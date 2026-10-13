@@ -5,6 +5,7 @@ A project's video lives in ``<project>/video/``:
 - ``source.<ext>``: the clip as uploaded, so frames can be taken again at another rate or range.
 - ``meta.json``: what the clip is (size, length, frame rate) and how frames were taken.
 - ``frames/00001.jpg`` …: the extracted frames, numbered from 1.
+- ``masks/00001.png`` …: optional background removal for every frame (white = kept).
 """
 
 from __future__ import annotations
@@ -12,12 +13,15 @@ from __future__ import annotations
 import hashlib
 import json
 import shutil
+import threading
+import uuid
 from pathlib import Path
 
 import cv2
 import numpy as np
 from pydantic import BaseModel, Field
 
+from . import mask as masking
 from . import projects as proj
 
 VIDEO_EXTS = {"mp4", "mov", "m4v", "webm", "avi", "mkv", "gif"}
@@ -109,6 +113,8 @@ def extract(pid: str, ex: Extract) -> dict:
     src = _source(d)
     if meta is None or src is None:
         raise VideoError("This project has no video. Choose one first.")
+    if busy(pid):
+        raise VideoError("Wait for the background removal to finish, or cancel it.")
     times = frame_times(meta["clip"], ex)
     fps = meta["clip"]["fps"]
     wanted = [min(meta["clip"]["frames"] - 1, int(round(t * fps))) for t in times]
@@ -141,11 +147,12 @@ def extract(pid: str, ex: Extract) -> dict:
         shutil.rmtree(tmp, ignore_errors=True)
         raise VideoError("No frames could be read from that part of the video.")
     shutil.rmtree(d / "frames", ignore_errors=True)
+    shutil.rmtree(d / "masks", ignore_errors=True)  # new frames: any background removal no longer fits
     tmp.replace(d / "frames")
     h, w = last.shape[:2]
     version = hashlib.sha1(json.dumps([meta["clip"], ex.model_dump(), got]).encode()).hexdigest()[:10]
     meta.update(extract=ex.model_dump(), count=got, frame_w=w, frame_h=h, version=version,
-                times=[round(t, 3) for t in times[:got]])
+                times=[round(t, 3) for t in times[:got]], background=None)
     _write_meta(pid, meta)
     return describe(pid)
 
@@ -169,6 +176,9 @@ def save_upload(pid: str, tmp_path: Path, name: str, ex: Extract | None = None) 
 
 
 def remove(pid: str) -> None:
+    job = _jobs.get(pid)
+    if job:
+        job["cancel"] = True
     shutil.rmtree(video_dir(pid), ignore_errors=True)
 
 
@@ -194,8 +204,14 @@ def describe(pid: str) -> dict | None:
     if meta is None or not meta.get("count"):
         return None
     return {"name": meta["name"], "clip": meta["clip"], "extract": meta.get("extract"), "count": meta["count"],
-            "width": meta["frame_w"], "height": meta["frame_h"], "version": meta["version"],
-            "times": meta.get("times", [])}
+            "width": meta["frame_w"], "height": meta["frame_h"], "version": _version(meta),
+            "times": meta.get("times", []), "background": meta.get("background")}
+
+
+def _version(meta: dict) -> str:
+    """Changes when the frames or their background removal change (plans are cached by it)."""
+    bg = meta.get("background")
+    return meta.get("version", "0") + (f"m{bg['version']}" if bg else "")
 
 
 def frame_path(pid: str, index: int) -> Path:
@@ -212,8 +228,7 @@ def frame_bytes(pid: str, index: int) -> bytes:
 
 def frame_id(pid: str, index: int) -> str:
     """An image id for a frame that changes when the frames are taken again."""
-    meta = load_meta(pid) or {}
-    return f"vf-{pid}-{meta.get('version', '0')}-{index}"
+    return f"vf-{pid}-{_version(load_meta(pid) or {})}-{index}"
 
 
 def parse_frame_id(image_id: str) -> tuple[str, int] | None:
@@ -224,3 +239,158 @@ def parse_frame_id(image_id: str) -> tuple[str, int] | None:
         return parts[1], int(parts[3])
     except ValueError:
         return None
+
+
+# ------------------------------------------------------------------ background removal for every frame
+
+_jobs: dict[str, dict] = {}  # project id → progress of a running (or the last) removal
+_jobs_lock = threading.Lock()
+
+
+def busy(pid: str) -> bool:
+    job = _jobs.get(pid)
+    return bool(job and job["running"])
+
+
+def frame_mask(pid: str, index: int) -> np.ndarray | None:
+    """Frame ``index``'s kept area (1 = keep), if the background was removed."""
+    meta = load_meta(pid)
+    if not meta or not meta.get("background"):
+        return None
+    p = video_dir(pid) / "masks" / f"{index + 1:05d}.png"
+    if not p.exists():
+        return None
+    m = cv2.imread(str(p), cv2.IMREAD_GRAYSCALE)
+    return None if m is None else (m > 127).astype(np.uint8)
+
+
+def frame_cutout(pid: str, index: int) -> bytes:
+    """The frame with its removed background turned white (JPEG), for previews."""
+    data = frame_bytes(pid, index)
+    m = frame_mask(pid, index)
+    if m is None:
+        return data
+    img = cv2.imdecode(np.frombuffer(data, np.uint8), cv2.IMREAD_COLOR)
+    keep = cv2.resize(m, (img.shape[1], img.shape[0]), interpolation=cv2.INTER_LINEAR)[..., None] > 0
+    ok, buf = cv2.imencode(".jpg", np.where(keep, img, 255).astype(np.uint8), [cv2.IMWRITE_JPEG_QUALITY, 88])
+    return buf.tobytes()
+
+
+def background_status(pid: str) -> dict:
+    job = _jobs.get(pid)
+    meta = load_meta(pid) or {}
+    out = {"running": False, "done": 0, "total": meta.get("count", 0), "failed": 0, "error": None,
+           "background": meta.get("background")}
+    if job:
+        out.update({k: job[k] for k in ("running", "done", "total", "failed", "error", "method")})
+    return out
+
+
+def start_background(pid: str, method: str, model: str | None = None) -> dict:
+    """Remove the background from every frame, in a background thread. Poll ``background_status``."""
+    meta = load_meta(pid)
+    if not meta or not meta.get("count"):
+        raise VideoError("This project has no video frames yet.")
+    if method not in ("auto", "ai"):
+        raise VideoError("Use 'auto' or 'ai'.")
+    if method == "ai":
+        if not masking.ai_available():
+            raise VideoError("AI background removal isn't installed. Run: uv sync --extra ai")
+        model = model or "isnet-general-use"
+        if model not in masking.AI_MODELS:
+            raise VideoError(f"Unknown AI model '{model}'.")
+    with _jobs_lock:
+        if busy(pid):
+            raise VideoError("Background removal is already running for this video.")
+        job = {"running": True, "done": 0, "total": meta["count"], "failed": 0, "error": None,
+               "method": method if method == "auto" else f"ai:{model}", "cancel": False}
+        _jobs[pid] = job
+    threading.Thread(target=_remove_all, args=(pid, method, model, job), daemon=True).start()
+    return background_status(pid)
+
+
+def cancel_background(pid: str) -> None:
+    job = _jobs.get(pid)
+    if job:
+        job["cancel"] = True
+
+
+def clear_background(pid: str) -> dict:
+    if busy(pid):
+        raise VideoError("Wait for the background removal to finish, or cancel it.")
+    meta = load_meta(pid)
+    if meta is None:
+        raise VideoError("This project has no video.")
+    shutil.rmtree(video_dir(pid) / "masks", ignore_errors=True)
+    meta["background"] = None
+    _write_meta(pid, meta)
+    return describe(pid)
+
+
+def _save_mask(tmp: Path, i: int, mask: np.ndarray) -> None:
+    ok, buf = cv2.imencode(".png", mask.astype(np.uint8) * 255)
+    (tmp / f"{i + 1:05d}.png").write_bytes(buf.tobytes())
+
+
+def _one_frame(pid: str, i: int, method: str, model: str | None, tmp: Path, job: dict) -> None:
+    if job["cancel"]:
+        return
+    state = masking.MaskState(rgb=masking.load_rgb(frame_bytes(pid, i)))
+    try:
+        if method == "ai":
+            masking.ai_remove(state, model)
+        else:
+            masking.auto(state)
+        _save_mask(tmp, i, state.mask)
+    except masking.MaskError as err:
+        if "installed" in str(err) or "Couldn't load" in str(err):
+            raise  # the model itself isn't available: stop and say so
+        job["failed"] += 1  # no subject found in this frame: it is plotted whole
+    job["done"] += 1
+
+
+def _remove_all(pid: str, method: str, model: str | None, job: dict) -> None:
+    d = video_dir(pid)
+    tmp = d / "masks.tmp"
+    try:
+        shutil.rmtree(tmp, ignore_errors=True)
+        tmp.mkdir(parents=True)
+        moving = None
+        if method == "auto":
+            # A steady camera: keep what moves, judged against the whole clip (consistent frame to frame).
+            frames = [masking.load_rgb(frame_bytes(pid, i)) for i in range(job["total"])]
+            moving = masking.moving_subject(frames)
+            del frames
+        if moving is not None:
+            job["method"] = "auto:moving"
+            for i, m in enumerate(moving):
+                if job["cancel"]:
+                    return
+                _save_mask(tmp, i, m)
+                job["done"] = i + 1
+        elif method == "ai":  # the model uses every core already
+            for i in range(job["total"]):
+                _one_frame(pid, i, method, model, tmp, job)
+        else:  # each frame on its own, a few at a time
+            from concurrent.futures import ThreadPoolExecutor
+
+            with ThreadPoolExecutor(max_workers=4) as pool:
+                for f in [pool.submit(_one_frame, pid, i, method, model, tmp, job) for i in range(job["total"])]:
+                    f.result()
+        if job["cancel"]:
+            return
+        if job["failed"] == job["total"]:
+            job["error"] = "No subject was found in any frame. Try the AI model, or crop closer to the subject."
+            return
+        meta = load_meta(pid)
+        if meta is None:
+            return
+        shutil.rmtree(d / "masks", ignore_errors=True)
+        tmp.replace(d / "masks")
+        meta["background"] = {"method": job["method"], "failed": job["failed"], "version": uuid.uuid4().hex[:6]}
+        _write_meta(pid, meta)
+    except Exception as err:  # reported to the page; the frames stay as they were
+        job["error"] = str(err) or type(err).__name__
+    finally:
+        job["running"] = False
+        shutil.rmtree(tmp, ignore_errors=True)

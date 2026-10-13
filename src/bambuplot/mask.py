@@ -131,6 +131,50 @@ def _labels_from_mask(mask: np.ndarray) -> np.ndarray:
     return np.where(mask > 0, GC_PR_FGD, GC_PR_BGD).astype(np.uint8)
 
 
+def _fill_holes(mask: np.ndarray) -> np.ndarray:
+    """Removed areas fully enclosed by kept ones become kept (the inside of a ball, a face…)."""
+    gone = (mask == 0).astype(np.uint8)
+    _, lab = cv2.connectedComponents(gone, connectivity=4)
+    outside = np.unique(np.concatenate([lab[0], lab[-1], lab[:, 0], lab[:, -1]]))
+    holes = (gone > 0) & ~np.isin(lab, outside)
+    return np.where(holes, 1, mask).astype(np.uint8)
+
+
+def moving_subject(frames: list[np.ndarray], threshold: float = 16.0) -> list[np.ndarray] | None:
+    """Masks of whatever moves in a clip filmed with a steady camera.
+
+    The background is each pixel's median over all frames, so anything that
+    moves is kept and the scene behind it is removed, the same way in every
+    frame (no flicker). Returns None when there are too few frames or the
+    camera itself seems to move (most of the picture changes).
+    """
+    if len(frames) < 5 or any(f.shape != frames[0].shape for f in frames):
+        return None
+    stack = np.stack(frames)  # uint8 (n, h, w, 3)
+    bg = np.median(stack, axis=0).astype(np.uint8)
+    bg_lab = cv2.cvtColor(bg, cv2.COLOR_RGB2LAB).astype(np.float32)
+    h, w = bg.shape[:2]
+    k_close = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (max(3, w // 120) | 1,) * 2)
+    k_open = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
+    masks, changed = [], []
+    for f in frames:
+        lab = cv2.cvtColor(f, cv2.COLOR_RGB2LAB).astype(np.float32)
+        d = np.linalg.norm(lab - bg_lab, axis=2)
+        m = (cv2.GaussianBlur(d, (0, 0), 1.0) > threshold).astype(np.uint8)
+        changed.append(float(m.mean()))
+        m = cv2.morphologyEx(m, cv2.MORPH_OPEN, k_open)
+        m = cv2.morphologyEx(m, cv2.MORPH_CLOSE, k_close)
+        m = _tidy(_fill_holes(m))
+        masks.append(m if m.mean() > 0.002 else None)
+    if np.median(changed) > 0.5:  # the whole view changes: a moving camera
+        return None
+    if all(m is None for m in masks):
+        return None
+    # A frame where nothing moved (the subject paused): use the nearest frame that has one.
+    have = [i for i, m in enumerate(masks) if m is not None]
+    return [m if m is not None else masks[min(have, key=lambda j: abs(j - i))] for i, m in enumerate(masks)]
+
+
 # -------------------------------------------------------------------- tools
 
 

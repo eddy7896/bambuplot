@@ -25,7 +25,7 @@ function newLayer(over={}){
    id is "video"; the server swaps in the frame being looked at (or every frame, for a flipbook). */
 const FLIP={pid:null,video:null,fb:null,ex:null,info:null,vimg:null,pages:new Map()};
 const VIDEO_ID='video';
-const frameURL=i=>`/api/projects/${FLIP.pid}/video/frames/${i}.jpg?v=${FLIP.video?.version||0}`;
+const frameURL=(i,cut=!!FLIP.video?.background&&act()?.prep?.use_mask!==false)=>`/api/projects/${FLIP.pid}/video/frames/${i}.jpg?v=${FLIP.video?.version||0}${cut?'&cut=1':''}`;
 const curFrame=()=>Math.max(0,Math.min(FLIP.fb?.frame||0,(FLIP.video?.count||1)-1));
 const usesVideo=()=>LAYERS.list.some(l=>l.visible&&l.image?.video);
 const flipOn=()=>!!(FLIP.video&&FLIP.fb?.enabled&&usesVideo());
@@ -266,6 +266,7 @@ function renderOver(){
   const [lx,ly]=localTouch(),[tx,ty]=toWorld(a,lx,ly);
   h+=`<path class="touch" d="M${X(tx-3)} ${Y(ty)}H${X(tx+3)}M${X(tx)} ${Y(ty-3)}V${Y(ty+3)}"></path><circle class="touch" cx="${X(tx)}" cy="${Y(ty)}" r="1.6"></circle>`;
   L.clips.forEach((c,i)=>{const r=clipRect(c);h+=`<rect class="clip${sel==='clip:'+i?' sel':''}" data-drag="clip:${i}" ${rA(r)} rx="1"></rect><text class="cliplbl" x="${X(r.x+r.w/2)}" y="${(V.y1-r.y-r.h/2+1.3).toFixed(2)}" text-anchor="middle">${i+1}</text>`});
+  h+=layerFrameSVG();
   if(sel==='area')h+=knob(a,'area');
   if(sel==='paper')h+=knob(paperBox(),'paper');
   if(showDims&&!drawing&&(sel==='paper'||sel==='area'))h+=dimsSVG(sel==='paper'?paperBox():areaBox());
@@ -280,8 +281,7 @@ function placeInk(){
   g.setAttribute('transform',`translate(${X(cx)} ${Y(cy)}) rotate(${-a.rot}) scale(${a.w/pw} ${a.h/ph}) translate(${-pw/2} ${-ph/2})`);
   const c=$('inkClipRect');c.setAttribute('width',pw);c.setAttribute('height',ph);
   // Flipbooks: the picture sits on the page being looked at.
-  const fc=flipOn()&&FLIP.info?.cells?FLIP.info.cells[FLIP.info.slot]:null;
-  const [bx,by,bw,bh]=fc?fc.art:[0,0,pw,ph];
+  const P=flipOn()?layerParent():{x:0,y:0,w:pw,h:ph},bx=P.x,by=P.y,bw=P.w,bh=P.h;
   const pl=act()?.place||FULL_PLACE,fw=pl.w*bw,fh=pl.h*bh,fx=bx+pl.x*bw,fy=ph-(by+(pl.y+pl.h)*bh);
   $('srcframe').setAttribute('transform',`translate(${fx} ${fy}) rotate(${-(pl.rotation||0)} ${fw/2} ${fh/2})`);
   const lf=$('layerframe');lf.setAttribute('width',fw);lf.setAttribute('height',fh);
@@ -338,7 +338,7 @@ function renderStats(){
   $('nTime').parentElement.title=fi?`About ${fmtMinutes(fi.minutes_per_page)} a page × ${fi.frames} pages, plus your time at each pause`:'Estimate; ignores acceleration';
 }
 const fmtMinutes=m=>m<60?`${Math.max(1,Math.round(m))} min`:`${Math.floor(m/60)} h ${Math.round(m%60)} m`;
-function render(){if(!drag)computeView();renderUnder();renderOver();placeInk();syncInputs();syncExtras();fillAll()}
+function render(){if(!drag)computeView();renderUnder();renderOver();placeInk();syncInputs();syncExtras();renderPlace();fillAll()}
 
 /* ---------- inputs ---------- */
 const getP=(o,p)=>p.split('.').reduce((a,k)=>a?.[k],o);
@@ -376,6 +376,7 @@ function saveMachine(){
 }
 function changed(keys){
   if(keys.some(k=>/^(bed|pen|z|feed)\./.test(k)))saveMachine();
+  if(keys.some(k=>k==='area.w'||k==='area.h'))reshapeAll();
   render();refreshChecks();save();
   if(keys.some(k=>PLAN_KEYS.has(k)||k.startsWith('feed.')||k.startsWith('z.')))schedulePlan();
 }
@@ -389,7 +390,10 @@ for(const el of layoutInputs)el.addEventListener('input',()=>{
 for(const el of prepInputs)el.addEventListener('input',()=>{
   const key=el.id.slice(2);let v=el.type==='checkbox'?el.checked:el.dataset.kind==='text'?el.value:parseFloat(el.value);
   if(el.type==='number'&&(!isFinite(v)||(el.min!==''&&v<+el.min)))return;
-  job.prep[key]=v;if(el.type==='range'){const o=$(el.id+'.out');if(o)o.textContent=fmtVal(v,el.step,el.dataset.unit||'')}save();placeInk();schedulePlan(400);
+  job.prep[key]=v;if(el.type==='range'){const o=$(el.id+'.out');if(o)o.textContent=fmtVal(v,el.step,el.dataset.unit||'')}
+  if(key==='rotate')keepShape(act());
+  if(key==='use_mask'&&job.image?.video){videoImage();$('srcimg').setAttribute('href',job.image.url)}
+  save();placeInk();renderOver();renderPlace();schedulePlan(400);
 });
 document.querySelectorAll('#orient button').forEach(b=>b.onclick=()=>{
   if(L.paper.orientation===b.dataset.o)return;const [cx,cy]=centerOf(paperBox());
@@ -518,7 +522,7 @@ function renderThumb(){
   }
   $('selBox').hidden=im?.kind!=='raster';$('selBox').classList.toggle('video',!!im?.video);renderCropInfo();
   if(im?.kind==='raster'){$('selInfo').textContent=selText(im.sel);$('selOpts').hidden=!im.sel?.has_mask;if(im.sel?.has_mask)$('srcimg').setAttribute('href',im.sel.preview)}
-  placeInk();syncInputs();
+  placeInk();syncInputs();if(L&&LAYERS.list.length){renderOver();renderPlace()}
 }
 $('file').onchange=e=>{const f=e.target.files[0];if(f)openFile(f)};
 const isVideoFile=f=>/^video\//.test(f.type)||/\.(mp4|mov|m4v|webm|avi|mkv|gif)$/i.test(f.name);
@@ -532,6 +536,7 @@ async function openFile(f){
     if(job.image?.url)URL.revokeObjectURL(job.image.url);
     job.prep.crop=null;
     job.image={id:d.id,kind:d.kind,w:d.width,h:d.height,name:f.name,warnings:d.warnings||[],strokes:d.strokes,fills:d.fills,sel:d.selection||null,url:URL.createObjectURL(f)};
+    keepShape(act(),true);
     renderThumb();buildEffects();renderLayers();save();schedulePlan(0);selectTab('tab-effect');
   }catch(err){setStatus('Upload failed: '+err.message,true)}
 }
@@ -583,8 +588,8 @@ document.addEventListener('keydown',e=>{if(e.key==='Escape'&&drawing){stopDraw()
 svg.addEventListener('pointerdown',e=>{
   if(drawing){const m=toMM(e);drawing.start={x:snapv(m.x),y:snapv(m.y)};drawing.rect=null;svg.setPointerCapture(e.pointerId);e.preventDefault();return}
   const t=e.target.closest('[data-drag]');if(!t)return;
-  const k=t.dataset.drag;drag={k,m:toMM(e),paper:{...L.paper},area:{...L.area},clips:L.clips.map(c=>({...c}))};
-  sel=k.startsWith('h-')||k==='rot-area'?'area':k==='rot-paper'?'paper':k;
+  const k=t.dataset.drag;drag={k,m:toMM(e),paper:{...L.paper},area:{...L.area},clips:L.clips.map(c=>({...c})),lbox:layerBox()};
+  sel=k.startsWith('h-')||k==='rot-area'?'area':k==='rot-paper'?'paper':k==='layer'||k.startsWith('lh-')?'layer':k;
   svg.setPointerCapture(e.pointerId);svg.focus({preventScroll:true});e.preventDefault();render();
 });
 /* Resize keeps the opposite corner fixed in the world, working in the area's own axes. */
@@ -606,6 +611,12 @@ svg.addEventListener('pointermove',e=>{
     if(!raf)raf=requestAnimationFrame(()=>{raf=0;renderOver()});return;
   }
   if(!drag)return;const m=toMM(e),dx=m.x-drag.m.x,dy=m.y-drag.m.y,k=drag.k;
+  if(k==='layer'||k.startsWith('lh-')){
+    const a=areaLocal(m),o=areaLocal(drag.m),P=layerParent(),ob=drag.lbox;
+    const nb=k==='layer'?{...ob,x:clampN(ob.x+a.x-o.x,P.x,P.x+P.w-ob.w),y:clampN(ob.y+a.y-o.y,P.y,P.y+P.h-ob.h)}:resizeLayer(ob,k.slice(3),a.x-o.x,a.y-o.y,P);
+    setLayerBox(nb);
+    if(!raf)raf=requestAnimationFrame(()=>{raf=0;placeInk();renderOver();renderPlace()});return;
+  }
   if(k==='paper'){L.paper.x=snapv(drag.paper.x+dx);L.paper.y=snapv(drag.paper.y+dy)}
   else if(k==='area'){L.area.x=snapv(drag.area.x+dx);L.area.y=snapv(drag.area.y+dy)}
   else if(k.startsWith('clip:')){const i=+k.slice(5),o=drag.clips[i];L.clips[i]={x:snapv(o.x+dx),y:snapv(o.y+dy)}}
@@ -625,7 +636,9 @@ const end=()=>{
     else{L.area={...L.area,x:r.x,y:r.y,w:r.w,h:r.h,rotation:0};sel='area'}
     changed(kind==='area'?['area.w']:['paper']);setStatus(`${kind==='paper'?'Paper':'Drawing area'} set to ${fmtSize(r.w,r.h)}.`);return;
   }
-  if(!drag)return;const resized=drag.k.startsWith('h-');drag=null;changed(resized?['area.w']:['moved'])};
+  if(!drag)return;const resized=drag.k.startsWith('h-'),pic=drag.k==='layer'||drag.k.startsWith('lh-');drag=null;
+  if(pic){syncLayerSettings();renderOver();renderPlace();save();schedulePlan(0);return}
+  changed(resized?['area.w']:['moved'])};
 svg.addEventListener('pointerup',end);svg.addEventListener('pointercancel',end);
 svg.addEventListener('keydown',e=>{
   if(e.key==='['||e.key===']'||e.key==='{'||e.key==='}'){
@@ -634,6 +647,10 @@ svg.addEventListener('keydown',e=>{
   }
   const d={ArrowLeft:[-1,0],ArrowRight:[1,0],ArrowUp:[0,1],ArrowDown:[0,-1]}[e.key];if(!d)return;e.preventDefault();
   const s=e.shiftKey?10:1,ax=d[0]*s,ay=d[1]*s;
+  if(sel==='layer'&&act()?.image){
+    const P=layerParent(),b=layerBox();setLayerBox({...b,x:clampN(b.x+ax,P.x,P.x+P.w-b.w),y:clampN(b.y+ay,P.y,P.y+P.h-b.h)});
+    placeInk();renderOver();renderPlace();syncLayerSettings();save();schedulePlan(300);return;
+  }
   if(sel==='paper'){L.paper.x+=ax;L.paper.y+=ay}else if(sel==='area'){L.area.x+=ax;L.area.y+=ay}
   else if(sel.startsWith('clip:')){const c=L.clips[+sel.slice(5)];if(c){c.x+=ax;c.y+=ay}}
   changed(['moved']);
@@ -821,6 +838,7 @@ async function loadAI(){
   if(!AI.models.some(m=>m.name===job.aiModel))job.aiModel=AI.models[0]?.name;
   sel.innerHTML=AI.models.map(m=>`<option value="${m.name}">${esc(m.label)} · ${m.downloaded?'ready':m.size_mb+' MB download'}</option>`).join('');
   sel.value=job.aiModel;
+  $('vb-model').innerHTML=sel.innerHTML;$('vb-model').value=job.aiModel;if(FLIP.video)renderVideoBg();
   $('edAI').title=`Uses the ${AI.models.find(m=>m.name===job.aiModel)?.label.toLowerCase()} model, chosen in the Source panel`;
 }
 $('aiModel').onchange=e=>{job.aiModel=e.target.value;save();loadAI()};
@@ -868,7 +886,8 @@ function commitCrop(){
   const c=ED.crop;
   if(c[2]-c[0]<0.02||c[3]-c[1]<0.02){ED.crop=job.prep.crop?[...job.prep.crop]:[0,0,1,1];drawEdStroke();return}
   job.prep.crop=isFull(c)?null:c.map(v=>Math.round(v*10000)/10000);
-  renderCropInfo();save();placeInk();schedulePlan(0);$('edStatus').textContent=cropText();
+  keepShape(act());
+  renderCropInfo();save();placeInk();renderOver();renderPlace();schedulePlan(0);$('edStatus').textContent=cropText();
 }
 function renderCropInfo(){
   const c=job.prep.crop,el=$('cropInfo');
@@ -1063,7 +1082,7 @@ function renderLayers(){
   syncLayerSettings();if(FLIP.fb)renderFlip();
 }
 function selectLayer(i){
-  LAYERS.active=i;renderLayers();buildEffects();renderThumb();syncInputs();placeInk();fillAll();
+  LAYERS.active=i;if(sel==='layer')sel='area';renderLayers();buildEffects();renderThumb();syncInputs();placeInk();renderOver();renderPlace();fillAll();
 }
 function layersChanged(){renderLayers();save();schedulePlan(0)}
 $('layerList').addEventListener('click',e=>{
@@ -1095,7 +1114,7 @@ $('layerMenu').addEventListener('click',e=>{
   const cur=act();
   // A stacked effect starts with the next pen, and a trace if the current layer is a tone effect.
   const layer=kind==='same'
-    ?newLayer({image:cur.image,prep:JSON.parse(JSON.stringify(cur.prep)),pen:Math.min(6,cur.pen+1),
+    ?newLayer({image:cur.image,prep:JSON.parse(JSON.stringify(cur.prep)),place:{...cur.place},pen:Math.min(6,cur.pen+1),
       effect:cur.image?.kind==='svg'?'svg':(cur.effect==='centerline'?'flow':'centerline')})
     :newLayer({pen:Math.min(6,cur.pen+1)});
   LAYERS.list.push(layer);selectLayer(LAYERS.list.length-1);selectTab(kind==='picture'?'tab-picture':'tab-effect');
@@ -1124,11 +1143,159 @@ for(const [id,k] of [['lyLo','band_lo'],['lyHi','band_hi']])$(id).addEventListen
 });
 $('lyFull').addEventListener('input',()=>{
   const l=act();l.place=$('lyFull').checked?{...FULL_PLACE}:{x:0.25,y:0.25,w:0.5,h:0.5,rotation:0};
-  syncLayerSettings();placeInk();save();schedulePlan(0);
+  syncLayerSettings();placeInk();renderOver();renderPlace();save();schedulePlan(0);
 });
 for(const [id,k,f] of [['lyX','x',100],['lyY','y',100],['lyW','w',100],['lyH','h',100],['lyR','rotation',1]])$(id).addEventListener('input',()=>{
   const v=parseFloat($(id).value);if(!isFinite(v))return;if((k==='w'||k==='h')&&v<2)return;
-  act().place[k]=k==='rotation'?normAng(v):v/f;placeInk();save();schedulePlan(300);
+  act().place[k]=k==='rotation'?normAng(v):v/f;placeInk();renderOver();renderPlace();save();schedulePlan(300);
+});
+
+/* ---------- print area: where a layer's picture prints, keeping its shape ---------- */
+const clampN=(v,a,b)=>Math.min(Math.max(v,a),Math.max(a,b));
+/* Width ÷ height of what the layer prints: the crop, turned if the picture is turned. */
+function pictureAspect(l=act()){
+  const im=l?.image;if(!im||!im.w||!im.h)return null;
+  if(im.kind==='svg')return im.w/im.h;
+  const c=l.prep.crop||[0,0,1,1],a=((c[2]-c[0])*im.w)/((c[3]-c[1])*im.h),t=+l.prep.rotate||0;
+  return t===90||t===270?1/a:a;
+}
+/* The box (drawing-area mm, y up) a layer's placement refers to: the drawing area, or on a flipbook
+   the picture part of the page being looked at. Matches the server's page grid. */
+function flipSlot(){const per=FLIP.fb.cols*FLIP.fb.rows,fr=frameRange(),i=curFrame(),k=fr.indexOf(i);return (k>=0?k:i)%per}
+function layerParent(){
+  const a=L.area;if(!flipOn())return {x:0,y:0,w:a.w,h:a.h};
+  const fb=FLIP.fb,per=fb.cols*fb.rows,pw=a.w/fb.cols,ph=a.h/fb.rows,inset=per>1?fb.gap/2:0,k=flipSlot();
+  const r=Math.floor(k/fb.cols),c=k%fb.cols,w=pw-2*inset,h=ph-2*inset,b=Math.min(fb.binding,w*0.6);
+  return {x:c*pw+inset+b,y:a.h-(r+1)*ph+inset,w:w-b,h};
+}
+/* Fill mode: the picture covers the whole area and is cut to its shape (how BambuPlot used to work). */
+const fillMode=l=>isFullPlace(l.place)&&l.prep.fit!=='fit';
+function layerBox(l=act()){const P=layerParent(),p=l?.place||FULL_PLACE;return {x:P.x+p.x*P.w,y:P.y+p.y*P.h,w:p.w*P.w,h:p.h*P.h,rotation:p.rotation||0}}
+function setLayerBox(b,l=act()){
+  const P=layerParent(),r=v=>Math.round(v*10000)/10000;
+  l.place={x:r((b.x-P.x)/P.w),y:r((b.y-P.y)/P.h),w:r(b.w/P.w),h:r(b.h/P.h),rotation:l.place?.rotation||0};
+}
+/* The largest box of the picture's shape that fits, scaled and centered where asked (parent mm). */
+function fitBox(l,{scale=1,center=null,area=null}={}){
+  const asp=pictureAspect(l),P=layerParent();
+  let mw=P.w,mh=mw/asp;if(mh>P.h){mh=P.h;mw=mh*asp}
+  let w=mw*scale,h=mh*scale;
+  if(area){w=Math.sqrt(area*asp);h=w/asp;const k=Math.min(1,mw/w);w*=k;h*=k}
+  w=Math.max(Math.min(5,mw),w);h=w/asp;
+  const cx=clampN(center?center[0]:P.x+P.w/2,P.x+w/2,P.x+P.w-w/2),cy=clampN(center?center[1]:P.y+P.h/2,P.y+h/2,P.y+P.h-h/2);
+  return {x:cx-w/2,y:cy-h/2,w,h,rotation:l.place?.rotation||0};
+}
+/* After the picture's shape changes (new picture, crop, turn): the print area takes the new shape,
+   keeping its middle and size. A new picture, or one that filled the area, is fitted whole. */
+function keepShape(l=act(),fresh=false){
+  if(!l?.image||!pictureAspect(l))return;
+  if(fresh||fillMode(l)){l.prep.fit='fit';setLayerBox(fitBox(l),l);return}
+  const b=layerBox(l);setLayerBox(fitBox(l,{center:[b.x+b.w/2,b.y+b.h/2],area:b.w*b.h}),l);
+}
+/* After the drawing area (or flipbook page) changes size: same shape, same share of the space. */
+function reshapeAll(){
+  for(const l of LAYERS.list){
+    if(!l.image||fillMode(l)||!pictureAspect(l))continue;
+    const P=layerParent(),p=l.place,asp=pictureAspect(l);
+    let mw=P.w,mh=mw/asp;if(mh>P.h){mh=P.h;mw=mh*asp}
+    const scale=Math.min(1,Math.max(p.w*P.w/mw,p.h*P.h/mh));
+    setLayerBox(fitBox(l,{scale,center:[P.x+(p.x+p.w/2)*P.w,P.y+(p.y+p.h/2)*P.h]}),l);
+  }
+}
+/* Resize from a corner in the drawing area's frame: the opposite corner stays put and the shape is kept. */
+function resizeLayer(o,corner,dx,dy,P){
+  const b={...o,rot:o.rotation||0},left=corner[1]==='l',front=corner[0]==='f';
+  const [ox,oy]=toWorld(b,left?b.w:0,front?b.h:0),[mx,my]=toWorld(b,left?0:b.w,front?0:b.h);
+  const [lu,lv]=rotPt(mx+dx-ox,my+dy-oy,-b.rot);
+  let s=Math.max((left?-lu:lu)/o.w,(front?-lv:lv)/o.h);
+  s=Math.max(s,5/Math.min(o.w,o.h));s=Math.min(s,P.w/o.w,P.h/o.h);
+  const w=o.w*s,h=o.h*s,[cu,cv]=rotPt((left?-w:w)/2,(front?-h:h)/2,b.rot);
+  return {...o,w,h,x:clampN(ox+cu-w/2,P.x,P.x+P.w-w),y:clampN(oy+cv-h/2,P.y,P.y+P.h-h)};
+}
+/* Plate point → drawing-area mm. */
+function areaLocal(m){const a=areaBox(),[cx,cy]=centerOf(a),[u,v]=rotPt(m.x-cx,m.y-cy,-a.rot);return {x:u+a.w/2,y:v+a.h/2}}
+function layerFrameSVG(){
+  const l=act();if(!l?.image||fillMode(l)||drawing||!plan)return '';
+  const b={...layerBox(l)};b.rot=b.rotation;const A=areaBox();
+  const W=(u,v)=>{const [lx,ly]=toWorld(b,u,v);return toWorld(A,lx,ly)};
+  const pts=[[0,0],[b.w,0],[b.w,b.h],[0,b.h]].map(([u,v])=>W(u,v));
+  let h=`<polygon class="picframe${sel==='layer'?' sel':''}" data-drag="layer" points="${pts.map(([x,y])=>`${X(x)},${Y(y)}`).join(' ')}"><title>Picture: drag to move it</title></polygon>`;
+  for(const [k,u,v] of [['fl',0,0],['fr',b.w,0],['bl',0,b.h],['br',b.w,b.h]]){
+    const [x,y]=W(u,v);h+=`<circle class="pichandle" data-drag="lh-${k}" cx="${X(x)}" cy="${Y(y)}" r="1.8"><title>Drag to resize the picture</title></circle>`;
+  }
+  if(sel==='layer'){const [x,y]=W(b.w/2,b.h);h+=`<text class="piclbl" x="${X(x)}" y="${(V.y1-y-1.6).toFixed(2)}" text-anchor="middle">${fmtSize(b.w,b.h)}</text>`}
+  return h;
+}
+function renderPlace(){
+  const l=act(),g=$('placeGroup');if(!g)return;g.hidden=!l?.image||!pictureAspect(l);if(g.hidden)return;
+  const fill=fillMode(l),b=layerBox(l),asp=pictureAspect(l),P=layerParent();
+  let mw=P.w,mh=mw/asp;if(mh>P.h){mh=P.h;mw=mh*asp}
+  $('placeInfo').textContent=fill
+    ?'The picture covers the whole drawing area, so any part that doesn’t match the area’s shape is cut off. Press Fit to Area to print all of what you chose.'
+    :`Prints ${fmtSize(b.w,b.h)}: all of the ${l.prep.crop?'cropped part':'picture'}, in its own shape. Drag the purple frame on the plate to move it, or a corner to resize it.`;
+  const pct=fill?100:Math.round(100*Math.min(1,Math.max(b.w/mw,b.h/mh)));
+  if(document.activeElement!==$('plSize'))$('plSize').value=pct;$('plSize.out').textContent=fill?'Fills':`${pct}%`;fillRange($('plSize'));
+  $('plFill').setAttribute('aria-pressed',fill);$('plCenter').disabled=fill;
+}
+function placeChanged(delay=0){placeInk();renderOver();renderPlace();syncLayerSettings();save();schedulePlan(delay)}
+$('plFit').onclick=()=>{const l=act();l.prep.fit='fit';setLayerBox(fitBox(l),l);sel='layer';placeChanged()};
+$('plCenter').onclick=()=>{const l=act(),b=layerBox(l);setLayerBox(fitBox(l,{area:b.w*b.h}),l);placeChanged()};
+$('plFill').onclick=()=>{const l=act();l.place={...FULL_PLACE,rotation:0};l.prep.fit='fill';if(sel==='layer')sel='area';placeChanged()};
+$('plSize').addEventListener('input',()=>{
+  const l=act();if(fillMode(l))l.prep.fit='fit';
+  const b=fillMode(l)?null:layerBox(l),s=+$('plSize').value/100;
+  setLayerBox(fitBox(l,{scale:s,center:b?[b.x+b.w/2,b.y+b.h/2]:null}),l);sel='layer';placeChanged(300);
+});
+
+/* ---------- background removal for every frame of a video ---------- */
+let bgPoll=0;
+async function startVideoBg(method){
+  const body={method};if(method==='ai')body.model=$('vb-model').value||job.aiModel;
+  $('vb-msg').textContent=method==='ai'?'Starting the AI model (the first use downloads it)…':'Starting…';
+  try{
+    const r=await post(`/api/projects/${FLIP.pid}/video/background`,body),d=await r.json();
+    if(!r.ok){$('vb-msg').textContent=errText(d.detail);return}
+    FLIP.bg=d;renderVideoBg();pollVideoBg();
+  }catch(_){$('vb-msg').textContent='Could not reach the BambuPlot server.'}
+}
+async function pollVideoBg(){
+  clearTimeout(bgPoll);const pid=FLIP.pid;if(!pid||!FLIP.video)return;
+  try{
+    const r=await fetch(`/api/projects/${pid}/video/background`);if(!r.ok||pid!==FLIP.pid)return;
+    const d=await r.json();FLIP.bg=d;
+    if(d.running)bgPoll=setTimeout(pollVideoBg,600);
+    else if(d.video&&d.video.version!==FLIP.video?.version){
+      setVideo(d.video);for(const l of LAYERS.list)if(l.image?.video)l.prep.use_mask=true;
+      videoImage();renderThumb();renderFlip();save();schedulePlan(0);
+    }
+  }catch(_){}
+  renderVideoBg();
+}
+function renderVideoBg(){
+  if(!FLIP.video)return;
+  const d=FLIP.bg,v=FLIP.video,run=!!d?.running,bg=v.background,l=act();
+  $('vb-auto').disabled=$('vb-ai').disabled=run;$('vb-cancel').hidden=!run;$('vb-clear').hidden=!bg||run;
+  $('vb-ai').hidden=$('vb-modelRow').hidden=!AI.available;
+  $('vb-use').closest('.srow').hidden=!bg||!l?.image?.video;$('vb-use').checked=l?.prep?.use_mask!==false;
+  $('vb-auto').textContent=bg?'Remove Again':'Remove Background';
+  $('vb-msg').textContent=run?`Removing the background: frame ${d.done} of ${d.total}…`
+    :d?.error?`Background removal stopped: ${d.error}`
+    :bg?`Background removed from ${v.count-(bg.failed||0)} of ${v.count} frames (${bg.method==='auto:moving'?'kept what moves':bg.method.startsWith('ai')?'AI':'automatic'}).${bg.failed?` No subject found in ${bg.failed}; those are drawn whole.`:''}`
+    :'Removes the background from every frame, so only the subject is drawn. With a steady camera it keeps whatever moves.';
+}
+$('vb-auto').onclick=()=>startVideoBg('auto');
+$('vb-ai').onclick=()=>startVideoBg('ai');
+$('vb-cancel').onclick=async()=>{await post(`/api/projects/${FLIP.pid}/video/background/cancel`,{});pollVideoBg()};
+$('vb-clear').onclick=async()=>{
+  const r=await fetch(`/api/projects/${FLIP.pid}/video/background`,{method:'DELETE'}),d=await r.json();
+  if(!r.ok){$('vb-msg').textContent=errText(d.detail);return}
+  setVideo(d);videoImage();FLIP.bg=null;renderThumb();renderFlip();renderVideoBg();save();schedulePlan(0);
+};
+$('vb-model').addEventListener('input',()=>{job.aiModel=$('vb-model').value;save()});
+$('vb-use').addEventListener('input',()=>{
+  act().prep.use_mask=$('vb-use').checked;videoImage();
+  if(job.image?.video){$('srcimg').setAttribute('href',job.image.url);const t=$('thumb').querySelector('img');if(t)t.src=job.image.url}
+  save();schedulePlan(0);
 });
 
 /* ---------- video & flipbook ---------- */
@@ -1141,8 +1308,8 @@ async function openVideo(f){
     if(!r.ok)throw new Error(typeof d.detail==='string'?d.detail:r.status===404?'the server is out of date. Restart it.':r.statusText);
     setVideo(d);Object.assign(FLIP.fb,{frame:0,first:0,last:null,enabled:true});
     if(job.image&&!job.image.video&&job.image.url)URL.revokeObjectURL(job.image.url);
-    job.prep.crop=null;job.image=videoImage();
-    renderThumb();buildEffects();renderLayers();renderFlip();save();schedulePlan(0);
+    job.prep.crop=null;job.image=videoImage();keepShape(act(),true);
+    renderThumb();buildEffects();renderLayers();renderFlip();render();save();schedulePlan(0);
     setStatus(`Took ${d.count} frames from ${d.name}. Scrub with the slider under the plate, or press , and .`);
   }catch(err){setStatus('Video failed: '+err.message,true)}
 }
@@ -1215,7 +1382,7 @@ function renderFlip(){
     :`${per} pages per sheet, each ${fmtSize(Math.max(0,pw),Math.max(0,ph))}${fb.binding?` (${fmtSize(Math.max(0,pw-fb.binding),Math.max(0,ph))} of picture)`:''}.`;
   const fr=frameRange(),sheets=Math.ceil(fr.length/per),fi=FLIP.info;
   $('fb-summary').textContent=`${fr.length} frame${fr.length===1?'':'s'} on ${sheets} sheet${sheets===1?'':'s'}${fi?`, about ${fmtMinutes(fi.minutes_per_page*fr.length)} of plotting`:''}.${sheets>1?` The printer pauses for each new sheet.`:''}`;
-  $('fb-preview').disabled=!flipOn();
+  $('fb-preview').disabled=!flipOn();renderVideoBg();
 }
 for(const [id,k] of [['vx-start','start'],['vx-end','end']])$(id).addEventListener('input',()=>{
   const v=parseFloat($(id).value);if(!isFinite(v)||v<0)return;FLIP.ex[k]=Math.min(v,FLIP.video.clip.duration);renderFlip();
@@ -1245,7 +1412,7 @@ for(const k of FB_SLIDERS)$('fb-'+k).addEventListener('input',()=>{FLIP.fb[k]=+$
 for(const k of ['cols','rows'])$('fb-'+k).addEventListener('input',()=>{FLIP.fb[k]=+$('fb-'+k).value;flipChanged()});
 $('fb-first').addEventListener('input',()=>{const v=parseInt($('fb-first').value);if(!(v>=1))return;FLIP.fb.first=Math.min(v,FLIP.video.count)-1;flipChanged()});
 $('fb-last').addEventListener('input',()=>{const v=parseInt($('fb-last').value);if(!(v>=1))return;const n=FLIP.video.count;FLIP.fb.last=v>=n?null:Math.max(v-1,FLIP.fb.first);flipChanged()});
-function flipChanged(delay=0){renderFlip();save();schedulePlan(delay);placeInk()}
+function flipChanged(delay=0){reshapeAll();renderFlip();save();schedulePlan(delay);placeInk();renderOver();renderPlace()}
 $('fb-preview').onclick=()=>openFlipPlayer();
 
 /* Page outlines on the plate, in drawing-area mm (y up), with the frame each page will get. */
@@ -1531,6 +1698,7 @@ async function openProject(pid){
   $('alignGroup').open=job.effect==='alignment';for(const id of ['alMeasL','alMeasF','alW','alH'])$(id).value='';$('alResult').hidden=true;
   currentProject=pid;dirty=false;setDocState(`Saved · ${docInfo()}`);
   if(d.warning)showProblems(d.warning);
+  FLIP.bg=null;if(FLIP.video)pollVideoBg();
 }
 function route(){
   const m=location.hash.match(/^#\/p\/([a-f0-9]{12})$/);

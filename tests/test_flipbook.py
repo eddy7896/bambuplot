@@ -157,3 +157,68 @@ def test_pages_too_small_are_refused(home, tmp_path):
             "flipbook": {"enabled": True, "cols": 8, "rows": 8, "gap": 10}}
     r = client.post("/api/plan", json=body)
     assert r.status_code == 422 and "too small" in r.json()["detail"]
+
+
+def test_remove_background_from_every_frame(home, tmp_path):
+    import time
+
+    client = TestClient(app)
+    pid = new_project(client, home)
+    client.post(f"/api/projects/{pid}/video", files={"file": ("ball.mp4", make_clip(tmp_path / "ball.mp4", 1.0), "video/mp4")})
+    before = client.get(f"/api/projects/{pid}/video").json()
+    r = client.post(f"/api/projects/{pid}/video/background", json={"method": "auto"})
+    assert r.status_code == 200 and r.json()["running"]
+    for _ in range(200):
+        st = client.get(f"/api/projects/{pid}/video/background").json()
+        if not st["running"]:
+            break
+        time.sleep(0.05)
+    assert st["error"] is None and st["done"] == st["total"] == 12
+    v = st["video"]
+    assert v["background"]["method"] == "auto:moving"  # a steady camera: keeps what moves
+    assert v["version"] != before["version"]  # plans can't reuse old frames
+    cut = client.get(f"/api/projects/{pid}/video/frames/3.jpg", params={"cut": True})
+    img = cv2.imdecode(np.frombuffer(cut.content, np.uint8), cv2.IMREAD_GRAYSCALE)
+    assert img[5, 5] > 240 and img[5, 5] > cv2.imdecode(np.frombuffer(
+        client.get(f"/api/projects/{pid}/video/frames/3.jpg").content, np.uint8), cv2.IMREAD_GRAYSCALE)[5, 5]
+
+    def ink(use_mask):
+        body = {"layout": Layout().model_dump(), "project": pid,
+                "layers": [{"id": "a", "effect": "halftone", "image_id": "video", "prep": {"use_mask": use_mask}}],
+                "flipbook": {"frame": 3}}
+        return client.post("/api/plan", json=body).json()["stats"]["draw_m"]
+
+    assert ink(True) < ink(False) * 0.6  # the grey background no longer gets dots
+
+    cleared = client.delete(f"/api/projects/{pid}/video/background").json()
+    assert cleared["background"] is None and cleared["version"] == before["version"]
+    # Taking frames again drops masks that no longer fit.
+    client.post(f"/api/projects/{pid}/video/background", json={"method": "auto"})
+    for _ in range(200):
+        if not client.get(f"/api/projects/{pid}/video/background").json()["running"]:
+            break
+        time.sleep(0.05)
+    again = client.post(f"/api/projects/{pid}/video/extract", json={"fps": 6}).json()
+    assert again["background"] is None
+
+
+def test_moving_subject_keeps_what_moves_and_rejects_a_moving_camera():
+    from bambuplot import mask as masking
+
+    def frame(x):
+        f = np.full((120, 160, 3), 200, np.uint8)
+        f[:, :, 0] = (np.arange(160) * 1.5).astype(np.uint8)[None, :]  # a gradient backdrop
+        cv2.circle(f, (x, 60), 15, (30, 30, 160), -1)
+        return f
+
+    steady = masking.moving_subject([frame(20 + 12 * i) for i in range(10)])
+    assert steady is not None
+    m = steady[4]
+    assert m[60, 68] == 1 and m[60, 20] == 0 and m[10, 150] == 0  # the ball, not where it was, not the backdrop
+    assert 0.02 < m.mean() < 0.08
+    def panned(i):  # a busy backdrop sliding past: nearly every pixel changes
+        f = np.zeros((120, 160, 3), np.uint8)
+        f[:, ((np.arange(160) + 7 * i) // 10) % 2 == 0] = 230
+        return f
+
+    assert masking.moving_subject([panned(i) for i in range(10)]) is None

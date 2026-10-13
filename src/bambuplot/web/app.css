@@ -468,3 +468,9 @@ dialog::backdrop{background:rgba(0,0,0,.25)}
 #frPlay svg path{fill:currentColor}
 #selBox.video #selEdit,#selBox.video #selAuto,#selBox.video #aiBox,#selBox.video #aiInstall,#selBox.video #selInfo,#selBox.video #selOpts{display:none!important}
 #editor.video #edTools button:not([data-tool="crop"]),#editor.video #edBrushOpts,#editor.video .ed-bar.secondary .btn:not(#edDone){display:none!important}
+/* the picture's print area inside the drawing area */
+.picframe{fill:rgba(175,82,222,.04);stroke:#af52de;stroke-width:.5;stroke-dasharray:2 1.2;cursor:move}
+.picframe.sel{stroke-dasharray:none;fill:rgba(175,82,222,.07)}
+.pichandle{fill:var(--panel);stroke:#af52de;stroke-width:.6;cursor:nwse-resize}
+.piclbl{fill:#af52de;font:600 3.2px var(--mono);pointer-events:none}
+#plFill[aria-pressed="true"]{background:var(--accent-soft);color:var(--accent)}

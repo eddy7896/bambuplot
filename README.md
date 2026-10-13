@@ -118,7 +118,9 @@ Open a video (MP4, MOV, M4V, WebM, AVI, MKV or an animated GIF) the same way as 
 
 **How the job runs:** each page is finished before the next starts. After the last page on a sheet, the pen lifts 30 mm above the clip height and the head moves so the plate comes forward. The printer pauses so you can swap in the next sheet. Put it exactly where the last one was: an L of tape on the plate at one corner makes this repeatable. Press Resume. Turn on **Check the pen on each sheet** for an extra stop at the touch-off point on every new sheet. The printer screen shows "Paused by the user" at sheet changes; change it under Printer → Printer Screen → At new sheets.
 
-Selection and background removal work on single pictures, not video frames. Not yet tested on a real printer: the sheet-change position and lift.
+**Background:** **Remove Background** in the Video & Flipbook panel works on every frame. With a steady camera it compares each frame with the whole clip and keeps only what moves, the same way in every frame, so the flipbook doesn't flicker. If the camera moves, it finds the subject in each frame on its own. **AI Remove** (with `uv sync --extra ai`) runs the AI model on every frame; it takes about a second a frame. **Leave the background blank** turns the removal off and on, and **Put Back** deletes it. Taking frames again clears it.
+
+Select Subject and the brushes work on single pictures, not video frames. Crop applies to every frame. Not yet tested on a real printer: the sheet-change position and lift.
 
 ### Border and signature
 
@@ -164,9 +166,18 @@ Click **Crop…** in the Source panel. It opens the picture editor on the Crop t
 - **Shape:** Free, Drawing area, Original, or Square.
 - **Match area to crop:** reshapes the drawing area to the crop's proportions, keeping its width and center.
 - **Reset crop:** goes back to the whole picture.
-- **Placement** (in the tone controls): **Fill the area** trims whatever doesn't fit. **Fit inside** shows the whole picture with blank margins.
 
-The crop is stored in the picture's own orientation, so **Turn image** still works on it. The plate preview shows exactly the part that will be plotted.
+The crop is stored in the picture's own orientation, so **Turn image** still works on it. Everything inside the crop is plotted; nothing more is trimmed to fit the drawing area.
+
+### Print area
+
+A picture prints in its own shape inside the drawing area, shown as a **purple frame** on the plate. A new picture is fitted as large as it can be. After a crop or a turn, the frame takes the new shape and keeps its middle and size.
+
+- **Move it:** drag inside the purple frame. Arrow keys nudge it 1 mm (Shift for 10 mm) while it's selected.
+- **Resize it:** drag a corner. The shape stays the picture's shape and the opposite corner stays put.
+- **Picture → Print Area:** a **Size** slider (share of the largest size that fits), **Fit to Area**, **Center**, and **Fill Area**. Fill Area covers the whole drawing area and trims whatever doesn't match its shape (how earlier versions worked, and how older projects still open).
+- Resizing the drawing area keeps each picture's shape and share of the space.
+- On a flipbook, the frame sits on the page instead of the whole area.
 
 ### Effects for photos and pictures
 

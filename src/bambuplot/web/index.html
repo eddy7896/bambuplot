@@ -178,6 +178,16 @@
             </div>
           </div>
         </section>
+        <section class="group" id="placeGroup" hidden>
+          <h2>Print Area</h2>
+          <p class="foot" id="placeInfo"></p>
+          <div class="srow" title="How big the picture prints, as a share of the largest size that fits"><label for="plSize">Size</label><input type="range" id="plSize" min="5" max="100" step="1"><output id="plSize.out"></output></div>
+          <div class="btnrow tight">
+            <button class="btn small" type="button" id="plFit" title="The largest size that fits, keeping the picture's shape">Fit to Area</button>
+            <button class="btn small" type="button" id="plCenter">Center</button>
+            <button class="btn small" type="button" id="plFill" aria-pressed="false" title="Cover the whole drawing area; parts that don't match the area's shape are cut off">Fill Area</button>
+          </div>
+        </section>
         <section class="group" id="flipGroup" hidden>
           <h2>Video &amp; Flipbook</h2>
           <p class="foot" id="vidInfo"></p>
@@ -190,6 +200,16 @@
           <div class="srow"><label for="vx-max">At most</label><input type="range" id="vx-max" min="1" max="300" step="1"><output id="vx-max.out"></output></div>
           <div class="btnrow tight"><button class="btn small" type="button" id="vx-go">Take Frames</button><button class="btn small" type="button" id="vx-remove">Remove Video</button></div>
           <p class="foot" id="vx-msg"></p>
+          <h3 class="subhead">Background</h3>
+          <div class="btnrow tight">
+            <button class="btn small" type="button" id="vb-auto" title="Removes a plain background, or finds the subject in each frame">Remove Background</button>
+            <button class="btn small" type="button" id="vb-ai" hidden>AI Remove</button>
+            <button class="btn small" type="button" id="vb-clear" hidden>Put Back</button>
+            <button class="btn small" type="button" id="vb-cancel" hidden>Cancel</button>
+          </div>
+          <div class="srow sel" id="vb-modelRow" hidden><label for="vb-model">AI model</label><select id="vb-model"></select></div>
+          <div class="srow sw" hidden><label for="vb-use">Leave the background blank</label><input type="checkbox" class="switch" id="vb-use"></div>
+          <p class="foot" id="vb-msg"></p>
           <h3 class="subhead">Flipbook pages</h3>
           <div class="srow sw" title="Plot every frame, one page after another. Off: plot only the frame you're looking at."><label for="fb-enabled">Plot every frame</label><input type="checkbox" class="switch" id="fb-enabled"></div>
           <div id="fbOpts">
@@ -219,7 +239,6 @@
           <div class="srow"><label for="P.brightness">Brightness</label><input type="range" id="P.brightness" min="-0.5" max="0.5" step="0.01"><output id="P.brightness.out"></output></div>
           <div class="srow"><label for="P.gamma">Gamma</label><input type="range" id="P.gamma" min="0.3" max="3" step="0.05"><output id="P.gamma.out"></output></div>
           <div class="srow" title="Near-white areas get no ink"><label for="P.paper_white">Paper white</label><input type="range" id="P.paper_white" min="0" max="0.5" step="0.01"><output id="P.paper_white.out"></output></div>
-          <div class="srow sel"><label for="P.fit">Placement</label><select id="P.fit" data-kind="text"><option value="fill">Fill area</option><option value="fit">Fit inside</option></select></div>
           <div class="srow sel"><label for="P.rotate">Turn</label><select id="P.rotate"><option value="0">Upright</option><option value="90">90° clockwise</option><option value="180">180°</option><option value="270">90° counter-clockwise</option></select></div>
           <div class="srow sw" title="Boosts local detail before the effect runs"><label for="P.clahe">Local contrast</label><input type="checkbox" class="switch" id="P.clahe"></div>
           <div class="srow sw"><label for="P.invert">Invert</label><input type="checkbox" class="switch" id="P.invert"></div>
