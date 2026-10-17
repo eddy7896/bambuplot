@@ -190,13 +190,33 @@ Every setting is a slider with a live value. Settings that only matter in some m
 | | **Spiral** | Off-center positioning; can keep spiralling into the corners |
 | | **Hilbert squiggle** | One space-filling line that wiggles harder in dark areas; rounded corners |
 | | **Thread art** | String art: one thread pulled nail to nail around a circle or rectangle; nails, threads, thread darkness, contrast |
+| | **Scribble** | One loose, looping pencil line that piles up in the shadows |
+| | **Space-filling curve** | Gosper, Peano or Moore curve that wiggles harder in dark areas; can be turned |
+| Lines & relief | **Ridge lines** | Stacked lines lifted by the picture with hidden lines removed, like a mountain range |
+| | **Concentric rings** | Rings around a movable center that ripple in the dark |
+| | **Mesh warp** | A grid pushed sideways by the picture so it bulges out of a net |
+| | **Moiré** | Two line sets; the second slides between the first where it's dark; optional twist for bands |
+| | **Morse lines** | Lines broken into dots and dashes: long dashes in shadows, scattered dots in the light |
 | Hatching & engraving | **Cross-hatch** | 1–4 layers; each darker tone adds a hatch at a new angle |
 | | **Flow lines** | Engraving-style lines that follow edges (or cross them), packed closer in shadows |
+| | **Banknote engraving** | Gently bending lines that swell with extra pen passes in the shadows |
+| | **Offset fill** | Each tone filled with rings that follow its own outline, like a topographic map |
+| | **Woodcut** | Solid black shadows plus short gouges that follow the forms in mid-tones |
+| | **Sketch** | Short wobbly strokes along edges, quick hatching in the shadows |
+| | **Pixel hatch** | A coarse grid, each square with 0–4 hatch layers |
 | Dots | **Halftone** | Circle, square, line or cross dots; filled or outline |
 | | **Stipple** | Density contrast; drawn as one TSP line, pen taps, or small filled dots |
 | | **Dither dots** | Floyd–Steinberg, Atkinson or ordered dithering on a pen-sized grid |
 | | **Circle packing** | Non-touching circles, small and tight in shadows; gap, tone curve, invert, rings per circle |
 | | **Spiral dots** | A hex or square grid of small spirals with more turns in the dark; wind out from the center or in from the edge |
+| | **Dashes** | Short dashes that follow (or cross) the edges, packed tighter in shadows |
+| | **Shape packing** | Squares, hexagons or triangles packed like Circle packing |
+| Patterns & tiles | **Maze** | A real, solvable maze with narrower corridors in the dark |
+| | **Truchet tiles** | Arc or diagonal tiles that join into flowing patterns, more lines when darker |
+| | **Voronoi mosaic** | Cells packed small in shadows; gaps or shared edges; optional hatch fill |
+| | **Low-poly** | A triangle mesh, finer at edges, triangles hatched by darkness |
+| | **Text art** | Your own words repeated (bolder in the dark), or ASCII-style characters by ink |
+| | **Harmonograph** | Pendulum loops; each pass drawn only where it's darker |
 
 ### Pen holder settings are shared
 
@@ -392,6 +412,7 @@ Every file passes through `safety.validate` before it is written. It is an allow
 | `thumbs.py` | Plate thumbnails: picture, plot, or both; top view |
 | `printer.py` | LAN Only upload (FTPS), start/status (MQTT), Bambu Connect hand-off |
 | `extras.py` | Border and signature: storage, tracing from a photo, placement, clearing art behind it |
+| `effects_more.py` | Twenty more effects: scribbles, relief lines, mazes, tiles, engraving styles, text |
 | `layers.py` | Layer model, frames inside the area, pen slots and grouping |
 | `video.py` | Project videos: probe, take frames, store them |
 | `flipbook.py` | Flipbook pages: settings, page grid, frame numbers, cut marks, sheets |

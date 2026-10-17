@@ -449,7 +449,7 @@ function selectTab(id){
 document.querySelectorAll('.tabs [role=tab]').forEach(t=>t.onclick=()=>selectTab(t.id));
 
 /* effect + params */
-const GROUP_ORDER=['Trace to vector lines','Single continuous line','Hatching & engraving','Dots','Vector file','Calibration'];
+const GROUP_ORDER=['Trace to vector lines','Single continuous line','Lines & relief','Hatching & engraving','Dots','Patterns & tiles','Vector file','Calibration'];
 const srcKind=()=>job.image?.kind==='svg'?'svg':'raster';
 function buildEffects(){
   const kind=srcKind(),usable=effects.filter(e=>(e.source||'raster')===kind);
@@ -484,6 +484,7 @@ function buildParams(){
     const tip=p.help?` title="${esc(p.help)}"`:'';
     if(p.kind==='bool')html=`<div class="srow sw"${tip}><label for="${id}">${esc(p.label)}</label><input type="checkbox" class="switch" id="${id}" ${v?'checked':''}></div>`;
     else if(p.kind==='choice')html=`<div class="srow sel"${tip}><label for="${id}">${esc(p.label)}</label><select id="${id}">${p.choices.map(c=>`<option ${c===v?'selected':''}>${esc(c)}</option>`).join('')}</select></div>`;
+    else if(p.kind==='text')html=`<div class="srow sel"${tip}><label for="${id}">${esc(p.label)}</label><input type="text" id="${id}" value="${esc(v)}" maxlength="200" autocomplete="off"></div>`;
     else if(p.min!=null&&p.max!=null)html=sliderHTML(id,p.label,v,p.min,p.max,p.step,p.unit,p.help);
     else html=`<div class="srow sel"${tip}><label for="${id}">${esc(p.label)}</label><input type="number" id="${id}" value="${v}"></div>`;
     return `<div class="param" data-p="${p.name}">${html}</div>`;
@@ -494,11 +495,11 @@ function buildParams(){
     box.hidden=!!p.when&&!Object.entries(p.when).every(([k,vals])=>vals.includes(current(k)));
   });
   e.params.forEach(p=>{const el=$('E.'+p.name);el.addEventListener('input',()=>{
-    let v=p.kind==='bool'?el.checked:p.kind==='choice'?el.value:parseFloat(el.value);
+    let v=p.kind==='bool'?el.checked:p.kind==='choice'||p.kind==='text'?el.value:parseFloat(el.value);
     if((p.kind==='float'||p.kind==='int')&&!isFinite(v))return;
     if(p.kind==='int')v=Math.round(v);
     const out=$('E.'+p.name+'.out');if(out)out.textContent=fmtVal(v,p.step,p.unit);
-    cur[p.name]=v;applyWhen();save();schedulePlan(p.kind==='int'||p.kind==='float'?400:0);
+    cur[p.name]=v;applyWhen();save();schedulePlan(p.kind==='int'||p.kind==='float'||p.kind==='text'?400:0);
   })});
   applyWhen();
 }

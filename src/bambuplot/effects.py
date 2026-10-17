@@ -26,7 +26,7 @@ Lines = list[np.ndarray]
 class Param:
     name: str
     label: str
-    kind: str  # "float" | "int" | "bool" | "choice"
+    kind: str  # "float" | "int" | "bool" | "choice" | "text"
     default: Any
     min: float | None = None
     max: float | None = None
@@ -45,8 +45,8 @@ class Context:
 
 
 # Menu groups, in the order the app lists them.
-GROUPS = ("Trace to vector lines", "Single continuous line", "Hatching & engraving", "Dots", "Vector file",
-          "Calibration")
+GROUPS = ("Trace to vector lines", "Single continuous line", "Lines & relief", "Hatching & engraving", "Dots",
+          "Patterns & tiles", "Vector file", "Calibration")
 
 
 @dataclass
@@ -75,6 +75,8 @@ class Effect:
                     v = v if isinstance(v, bool) else str(v).lower() in ("1", "true", "yes", "on")
                 elif p.kind == "choice":
                     v = v if v in (p.choices or []) else p.default
+                elif p.kind == "text":
+                    v = str(v)[:200]
             except (TypeError, ValueError):
                 v = p.default
             if p.kind in ("float", "int"):
@@ -807,28 +809,33 @@ def squiggle(tone: Tone, ctx: Context, cell, amplitude, wavelength, rounded) -> 
     out: Lines = []
     edges = np.diff(np.concatenate([[0], keep.astype(np.int8), [0]]))
     for s, e in zip(np.flatnonzero(edges == 1), np.flatnonzero(edges == -1)):
-        p = pts[s:e]
-        if len(p) < 2:
-            continue
-        if rounded:  # Chaikin corner cutting, twice
-            for _ in range(2):
-                q = np.empty((2 * len(p) - 2, 2))
-                q[0::2] = 0.75 * p[:-1] + 0.25 * p[1:]
-                q[1::2] = 0.25 * p[:-1] + 0.75 * p[1:]
-                p = np.vstack([p[:1], q, p[-1:]])
-        seg = np.hypot(*np.diff(p, axis=0).T)
-        cum = np.concatenate([[0], np.cumsum(seg)])
-        t = np.arange(0, cum[-1], 0.2)
-        base = np.column_stack([np.interp(t, cum, p[:, 0]), np.interp(t, cum, p[:, 1])])
-        tang = np.gradient(base, axis=0)
-        tang /= np.maximum(np.hypot(tang[:, 0], tang[:, 1]), 1e-9)[:, None]
-        nrm = np.column_stack([-tang[:, 1], tang[:, 0]])
-        dark = tone.darkness(base[:, 0], base[:, 1])
-        wl = wavelength + (6 * wavelength) * (1 - dark)
-        phase = np.cumsum(2 * np.pi * 0.2 / wl)
-        line = base + (dark * amplitude * cell / 2 * np.sin(phase))[:, None] * nrm
-        out += _runs_inside(line, w, h)
+        if e - s >= 2:
+            out += _wiggle_path(pts[s:e], tone, cell, amplitude, wavelength, rounded)
     return out
+
+
+def _wiggle_path(p: np.ndarray, tone: Tone, cell: float, amplitude: float, wavelength: float,
+                 rounded: bool) -> Lines:
+    """A path (e.g. a space-filling curve) that wiggles harder and tighter where the picture is dark."""
+    w, h = tone.w, tone.h
+    if rounded:  # Chaikin corner cutting, twice
+        for _ in range(2):
+            q = np.empty((2 * len(p) - 2, 2))
+            q[0::2] = 0.75 * p[:-1] + 0.25 * p[1:]
+            q[1::2] = 0.25 * p[:-1] + 0.75 * p[1:]
+            p = np.vstack([p[:1], q, p[-1:]])
+    seg = np.hypot(*np.diff(p, axis=0).T)
+    cum = np.concatenate([[0], np.cumsum(seg)])
+    t = np.arange(0, cum[-1], 0.2)
+    base = np.column_stack([np.interp(t, cum, p[:, 0]), np.interp(t, cum, p[:, 1])])
+    tang = np.gradient(base, axis=0)
+    tang /= np.maximum(np.hypot(tang[:, 0], tang[:, 1]), 1e-9)[:, None]
+    nrm = np.column_stack([-tang[:, 1], tang[:, 0]])
+    dark = tone.darkness(base[:, 0], base[:, 1])
+    wl = wavelength + (6 * wavelength) * (1 - dark)
+    phase = np.cumsum(2 * np.pi * 0.2 / wl)
+    line = base + (dark * amplitude * cell / 2 * np.sin(phase))[:, None] * nrm
+    return _runs_inside(line, w, h)
 
 
 # ------------------------------------------------------------------ thread art
@@ -948,6 +955,21 @@ def thread(tone: Tone, ctx: Context, frame, nails, lines, weight, contrast, min_
 )
 def circles(tone: Tone, ctx: Context, min_radius, max_radius, gap, attempts, curve, invert, empty_white,
             rings) -> Lines:
+    placed = _pack(tone, ctx, min_radius, max_radius, gap, attempts, curve, invert, empty_white)
+    pitch = max(ctx.pen_width * 1.2, 0.5)
+    out: Lines = []
+    for x, y, r in placed:
+        for k in range(rings):
+            rr = r - k * pitch
+            if rr < ctx.pen_width:
+                break
+            out.append(_circle(x, y, rr))
+    return out
+
+
+def _pack(tone: Tone, ctx: Context, min_radius, max_radius, gap, attempts, curve, invert,
+          empty_white) -> list[tuple[float, float, float]]:
+    """Non-touching discs (x, y, radius) sized by tone: small in the dark unless ``invert``."""
     w, h = tone.w, tone.h
     max_radius = max(max_radius, min_radius)
     rng = np.random.default_rng(ctx.seed)
@@ -973,15 +995,7 @@ def circles(tone: Tone, ctx: Context, min_radius, max_radius, gap, attempts, cur
             continue
         grid.setdefault((ci, cj), []).append((x, y, r))
         placed.append((x, y, r))
-    pitch = max(ctx.pen_width * 1.2, 0.5)
-    out: Lines = []
-    for x, y, r in placed:
-        for k in range(rings):
-            rr = r - k * pitch
-            if rr < ctx.pen_width:
-                break
-            out.append(_circle(x, y, rr))
-    return out
+    return placed
 
 
 # ------------------------------------------------------------------- spiral dots
@@ -1073,3 +1087,6 @@ def alignment_target(w: float, h: float, radius: float, ticks: bool) -> Lines:
 )
 def alignment(tone: Tone, ctx: Context, radius, ticks) -> Lines:
     return alignment_target(tone.w, tone.h, radius, ticks)
+
+
+from . import effects_more  # noqa: E402,F401  (registers more effects)
