@@ -831,6 +831,207 @@ def squiggle(tone: Tone, ctx: Context, cell, amplitude, wavelength, rounded) -> 
     return out
 
 
+# ------------------------------------------------------------------ thread art
+
+
+def _nails(frame: str, n: int, w: float, h: float) -> tuple[np.ndarray, np.ndarray]:
+    """Nail positions around a circle or the area's edge, and which side each nail is on."""
+    if frame == "circle":
+        r = min(w, h) / 2 - 0.3
+        a = np.pi / 2 + 2 * np.pi * np.arange(n) / n  # start at the back, go anticlockwise
+        return np.column_stack([w / 2 + r * np.cos(a), h / 2 + r * np.sin(a)]), np.zeros(n, int)
+    m = 0.3
+    x0, y0, x1, y1 = m, m, w - m, h - m
+    sides = ((x1 - x0, (x0, y0), (1, 0)), (y1 - y0, (x1, y0), (0, 1)),  # front, right,
+             (x1 - x0, (x1, y1), (-1, 0)), (y1 - y0, (x0, y1), (0, -1)))  # back, left
+    per = sum(s[0] for s in sides)
+    pts, side = np.zeros((n, 2)), np.zeros(n, int)
+    for i, d in enumerate((np.arange(n) + 0.5) * per / n):
+        for k, (length, (sx, sy), (dx, dy)) in enumerate(sides):
+            if d <= length or k == 3:
+                pts[i], side[i] = (sx + dx * d, sy + dy * d), k
+                break
+            d -= length
+    return pts, side
+
+
+@register(
+    "thread",
+    "Thread art",
+    "String art: one straight thread pulled from nail to nail around a frame, again and again, "
+    "until the crossings build up the picture. Drawn as one continuous line.",
+    [
+        Param("frame", "Frame", "choice", "circle", choices=["circle", "rectangle"]),
+        Param("nails", "Nails", "int", 240, 40, 500, 4, help="Points around the frame the thread runs between"),
+        Param("lines", "Threads", "int", 900, 100, 8000, 50,
+              help="More threads make a darker, denser picture (and a longer plot)"),
+        Param("weight", "Thread darkness", "float", 0.3, 0.03, 0.8, 0.01,
+              help="How much darkness each thread uses up. Lower spreads threads over more of the picture"),
+        Param("contrast", "Contrast", "float", 2.0, 0.5, 4, 0.1, unit="×",
+              help="Above 1, light areas draw threads less and shadows more"),
+        Param("min_skip", "Skip nearby nails", "int", 12, 1, 80, 1,
+              help="Threads never run between nails this close, which keeps the frame's edge clean"),
+        Param("detail", "Detail", "float", 1.0, 0.4, 3, 0.1, unit="px/mm",
+              help="Resolution of the picture the threads follow"),
+        Param("outline", "Draw the frame", "bool", False),
+    ],
+)
+def thread(tone: Tone, ctx: Context, frame, nails, lines, weight, contrast, min_skip, detail, outline) -> Lines:
+    w, h = tone.w, tone.h
+    P, side = _nails(frame, nails, w, h)
+    cols, rows = max(8, int(w * detail)), max(8, int(h * detail))
+    gx, gy = np.meshgrid((np.arange(cols) + 0.5) * w / cols, (np.arange(rows) + 0.5) * h / rows)
+    residual = (tone.darkness(gx, gy) ** contrast).astype(np.float32)
+    if frame == "circle":
+        residual[np.hypot(gx - w / 2, gy - h / 2) > min(w, h) / 2] = 0
+    flat_res = residual.ravel()
+    pix = P * [cols / w, rows / h]  # nail positions in pixel units
+    samples = int(np.hypot(cols, rows)) + 2
+    t = np.linspace(0, 1, samples)[None, :, None]
+    near = np.linspace(0, 1, samples)  # every thread crowds the nails: judge threads away from them
+    span = np.hypot(*(pix[None] - pix[:, None]).T).T / detail  # thread lengths, mm
+    idx = np.arange(nails)
+    used = np.zeros((nails, nails), bool)
+    cur, seq = 0, [0]
+    for _ in range(lines):
+        seg = pix[cur] + t * (pix - pix[cur])[:, None, :]  # every candidate thread, sampled
+        ix = np.clip(seg[..., 0].astype(np.int32), 0, cols - 1)
+        iy = np.clip(seg[..., 1].astype(np.int32), 0, rows - 1)
+        ends = 2.0 / np.maximum(span[cur], 1e-6)  # 2 mm at each end, as a fraction of each thread
+        away = (near[None, :] > ends[:, None]) & (near[None, :] < 1 - ends[:, None])
+        score = (residual[iy, ix] * away).sum(axis=1) / np.maximum(away.sum(axis=1), 1)
+        if frame == "circle":
+            gap = np.abs(idx - cur)
+            bad = np.minimum(gap, nails - gap) < min_skip
+        else:  # a thread along one side of the frame would only trace its edge
+            bad = (side == side[cur]) | (np.abs(idx - cur) < min_skip)
+        bad |= used[cur]
+        bad[cur] = True
+        score[bad] = -np.inf
+        j = int(np.argmax(score))
+        if not np.isfinite(score[j]) or score[j] < 0.01:
+            break  # nothing dark is left to draw
+        hit = np.unique(iy[j] * cols + ix[j])
+        flat_res[hit] = np.maximum(flat_res[hit] - weight, 0.0)
+        used[cur, j] = used[j, cur] = True
+        seq.append(j)
+        cur = j
+    out: Lines = [P[seq]] if len(seq) > 1 else []
+    if outline:
+        if frame == "circle":
+            out.insert(0, _circle(w / 2, h / 2, min(w, h) / 2 - 0.3))
+        else:
+            out.insert(0, np.array([[0.3, 0.3], [w - 0.3, 0.3], [w - 0.3, h - 0.3], [0.3, h - 0.3], [0.3, 0.3]]))
+    return out
+
+
+# --------------------------------------------------------------- circle packing
+
+
+@register(
+    "circles",
+    "Circle packing",
+    "Circles packed close without touching: small and tight in the shadows, large and open in the light.",
+    [
+        Param("min_radius", "Smallest circle", "float", 0.6, 0.2, 5, 0.05, unit="mm", help="In the darkest areas"),
+        Param("max_radius", "Largest circle", "float", 5.0, 1, 25, 0.5, unit="mm", help="In the lightest areas"),
+        Param("gap", "Gap between circles", "float", 0.35, 0, 3, 0.05, unit="mm"),
+        Param("attempts", "Packing effort", "int", 40000, 2000, 200000, 1000,
+              help="More tries fill the space more tightly"),
+        Param("curve", "Tone curve", "float", 0.7, 0.2, 3, 0.05, unit="×",
+              help="Below 1, mid-tones get small circles sooner"),
+        Param("invert", "Large circles in the dark", "bool", False),
+        Param("empty_white", "Leave white areas empty", "bool", True),
+        Param("rings", "Rings in each circle", "int", 1, 1, 6, 1, help="Concentric rings, for a bolder look"),
+    ],
+    group="Dots",
+)
+def circles(tone: Tone, ctx: Context, min_radius, max_radius, gap, attempts, curve, invert, empty_white,
+            rings) -> Lines:
+    w, h = tone.w, tone.h
+    max_radius = max(max_radius, min_radius)
+    rng = np.random.default_rng(ctx.seed)
+    xs, ys = rng.uniform(0, w, attempts), rng.uniform(0, h, attempts)
+    dark = tone.darkness(xs, ys)
+    want = max_radius - (max_radius - min_radius) * (1 - dark if invert else dark) ** curve
+    keep = ~(empty_white & (dark < 0.06))
+    order = np.argsort(-want[keep], kind="stable")  # big circles first pack best
+    xs, ys, want = xs[keep][order], ys[keep][order], want[keep][order]
+    cell = 2 * max_radius + gap
+    grid: dict[tuple[int, int], list[tuple[float, float, float]]] = {}
+    placed: list[tuple[float, float, float]] = []
+    for x, y, want_r in zip(xs.tolist(), ys.tolist(), want.tolist()):
+        r = min(want_r, x, w - x, y, h - y)
+        if r < min_radius * 0.8:
+            continue
+        ci, cj = int(x // cell), int(y // cell)
+        for di in (-1, 0, 1):
+            for dj in (-1, 0, 1):
+                for px, py, pr in grid.get((ci + di, cj + dj), ()):
+                    r = min(r, ((x - px) ** 2 + (y - py) ** 2) ** 0.5 - pr - gap)
+        if r < max(min_radius * 0.8, want_r * 0.7):  # may shrink a little to fit, not into any gap
+            continue
+        grid.setdefault((ci, cj), []).append((x, y, r))
+        placed.append((x, y, r))
+    pitch = max(ctx.pen_width * 1.2, 0.5)
+    out: Lines = []
+    for x, y, r in placed:
+        for k in range(rings):
+            rr = r - k * pitch
+            if rr < ctx.pen_width:
+                break
+            out.append(_circle(x, y, rr))
+    return out
+
+
+# ------------------------------------------------------------------- spiral dots
+
+
+@register(
+    "spiral_dots",
+    "Spiral dots",
+    "A grid of small spirals, each with more turns where the picture is darker, like grooves on a record.",
+    [
+        Param("cell", "Grid size", "float", 5.0, 1.5, 15, 0.1, unit="mm", help="Distance between spiral centers"),
+        Param("grid", "Grid", "choice", "hexagonal", choices=["hexagonal", "square"]),
+        Param("max_turns", "Most turns", "int", 4, 1, 20, 1,
+              help="Turns in the darkest areas. Grooves stay at least 1.8 pen widths apart so the spiral shows"),
+        Param("size", "Spiral size", "float", 0.95, 0.4, 1.3, 0.05, unit="×", help="× grid size"),
+        Param("from_center", "Wind out from the center", "bool", True,
+              help="Off: wind in from the outside, so light dots are rings"),
+        Param("min_dark", "Skip lighter than", "float", 0.06, 0, 0.5, 0.01, help="Leave near-white areas empty"),
+    ],
+    group="Dots",
+)
+def spiral_dots(tone: Tone, ctx: Context, cell, grid, max_turns, size, from_center, min_dark) -> Lines:
+    w, h = tone.w, tone.h
+    if grid == "hexagonal":
+        dy = cell * np.sqrt(3) / 2
+        P = np.array([((i + 0.5 * (j % 2)) * cell, j * dy)
+                      for j in range(int(h / dy) + 2) for i in range(int(w / cell) + 2)], float)
+    else:
+        P = np.array([(i * cell, j * cell) for j in range(int(h / cell) + 2) for i in range(int(w / cell) + 2)], float)
+    R = cell / 2 * size
+    P += (np.array([w, h]) - (P.min(axis=0) + P.max(axis=0))) / 2  # center the grid on the area
+    P = P[(P[:, 0] >= R) & (P[:, 0] <= w - R) & (P[:, 1] >= R) & (P[:, 1] <= h - R)]
+    dark = tone.darkness(P[:, 0], P[:, 1])
+    pitch = max(R / max_turns, ctx.pen_width * 1.8)
+    max_turns = min(max_turns, R / pitch)
+    out: Lines = []
+    for (cx, cy), d in zip(P, dark):
+        if d < min_dark:
+            continue
+        turns = max(0.35, d * max_turns)
+        lo, hi = (0.0, min(R, turns * pitch)) if from_center else (max(0.0, R - turns * pitch), R)
+        n = max(12, int(np.ceil(np.pi * turns * (lo + hi) / 0.3)))
+        a = np.linspace(0, 2 * np.pi * turns, n)
+        rad = lo + (hi - lo) * a / a[-1]
+        if not from_center:
+            rad = rad[::-1]  # start on the outer ring and wind in
+        out.append(np.column_stack([cx + rad * np.cos(a), cy + rad * np.sin(a)]))
+    return out
+
+
 # --------------------------------------------------------------- calibration
 
 

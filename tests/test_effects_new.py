@@ -104,3 +104,46 @@ def test_params_describe_units_groups_and_conditions():
 
 def test_coerce_rejects_nan():
     assert effects.EFFECTS["waves"].coerce({"spacing": float("nan")})["spacing"] == 2.5
+
+
+def _left_dark(w=100.0, h=80.0):
+    """Dark on the left half, white on the right."""
+    img = np.ones((160, 200), np.float32)
+    img[:, :100] = 0.15
+    return prepare(img, w, h, Prep(clahe=False))
+
+
+def test_thread_art_is_one_line_between_nails_drawn_where_it_is_dark():
+    tone = _left_dark(100, 100)
+    lines = effects.run("thread", tone, {"nails": 120, "lines": 300}, effects.Context(pen_width=0.4))
+    assert len(lines) == 1
+    path = lines[0]
+    r = np.hypot(path[:, 0] - 50, path[:, 1] - 50)
+    assert np.allclose(r, 50 - 0.3, atol=1e-6)  # every turn is at a nail on the circle
+    mids = (path[1:] + path[:-1]) / 2
+    assert (mids[:, 0] < 50).mean() > 0.75  # threads run through the dark half
+    rect = effects.run("thread", tone, {"frame": "rectangle", "nails": 100, "lines": 200, "outline": True},
+                       effects.Context())
+    assert len(rect) == 2 and len(rect[1]) > 50  # the frame, then the thread
+
+
+def test_circle_packing_never_overlaps_and_shrinks_in_the_dark():
+    tone = _left_dark()
+    lines = effects.run("circles", tone, {"gap": 0.3, "empty_white": False}, effects.Context(pen_width=0.4))
+    c = np.array([[l[:, 0].mean(), l[:, 1].mean(), np.hypot(*(l[0] - l[:, :].mean(axis=0)))] for l in lines])
+    d = np.hypot(c[:, None, 0] - c[None, :, 0], c[:, None, 1] - c[None, :, 1])
+    np.fill_diagonal(d, np.inf)
+    assert (d - c[:, None, 2] - c[None, :, 2]).min() > 0.3 - 0.05  # always the gap apart
+    assert c[:, 0].min() - c[np.argmin(c[:, 0]), 2] >= -1e-6  # inside the area
+    assert c[c[:, 0] < 45, 2].mean() < c[c[:, 0] > 55, 2].mean() * 0.6  # small circles in the dark
+    empty = effects.run("circles", tone, {}, effects.Context())
+    assert all(l[:, 0].mean() < 52 for l in empty)  # white areas left empty by default
+
+
+def test_spiral_dots_wind_more_in_the_dark():
+    tone = _left_dark()
+    lines = effects.run("spiral_dots", tone, {"min_dark": 0.0}, effects.Context(pen_width=0.4))
+    lengths = np.array([np.hypot(*np.diff(l, axis=0).T).sum() for l in lines])
+    xs = np.array([l[0, 0] for l in lines])
+    assert lengths[xs < 45].mean() > 3 * lengths[xs > 55].mean()
+    assert not effects.run("spiral_dots", tone, {}, effects.Context()) == []

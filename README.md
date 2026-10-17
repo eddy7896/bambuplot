@@ -189,11 +189,14 @@ Every setting is a slider with a live value. Settings that only matter in some m
 | Single continuous line | **Wave lines** | Line angle; wave height up to 1× spacing, so neighbors overlap for full black |
 | | **Spiral** | Off-center positioning; can keep spiralling into the corners |
 | | **Hilbert squiggle** | One space-filling line that wiggles harder in dark areas; rounded corners |
+| | **Thread art** | String art: one thread pulled nail to nail around a circle or rectangle; nails, threads, thread darkness, contrast |
 | Hatching & engraving | **Cross-hatch** | 1–4 layers; each darker tone adds a hatch at a new angle |
 | | **Flow lines** | Engraving-style lines that follow edges (or cross them), packed closer in shadows |
 | Dots | **Halftone** | Circle, square, line or cross dots; filled or outline |
 | | **Stipple** | Density contrast; drawn as one TSP line, pen taps, or small filled dots |
 | | **Dither dots** | Floyd–Steinberg, Atkinson or ordered dithering on a pen-sized grid |
+| | **Circle packing** | Non-touching circles, small and tight in shadows; gap, tone curve, invert, rings per circle |
+| | **Spiral dots** | A hex or square grid of small spirals with more turns in the dark; wind out from the center or in from the edge |
 
 ### Pen holder settings are shared
 
